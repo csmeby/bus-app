@@ -3,17 +3,19 @@ import React from 'react';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { BTD_TINT } from '@/constants/btd-theme';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-export default function TabLayout() {
+export default function BtdTabLayout() {
   const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme ?? 'dark'];
+  const scheme = colorScheme ?? 'dark';
+  const colors = Colors[scheme];
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colors.tint,
+        tabBarActiveTintColor: BTD_TINT[scheme],
         tabBarInactiveTintColor: colors.tabIconDefault,
         tabBarStyle: {
           backgroundColor: colors.surface,
@@ -23,31 +25,24 @@ export default function TabLayout() {
         tabBarButton: HapticTab,
       }}>
       <Tabs.Screen
-        name="index"
+        name="map"
         options={{
           title: 'Map',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="map.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={26} name="bus.fill" color={color} />,
         }}
       />
       <Tabs.Screen
-        name="plan"
+        name="schedule"
         options={{
-          title: 'Plan',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="arrow.triangle.turn.up.right.circle.fill" color={color} />,
+          title: 'Schedule',
+          tabBarIcon: ({ color }) => <IconSymbol size={26} name="clock.fill" color={color} />,
         }}
       />
       <Tabs.Screen
-        name="calendar"
+        name="info"
         options={{
-          title: 'Calendar',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="calendar" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: 'More',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="line.3.horizontal" color={color} />,
+          title: 'Info',
+          tabBarIcon: ({ color }) => <IconSymbol size={26} name="info.circle.fill" color={color} />,
         }}
       />
     </Tabs>
