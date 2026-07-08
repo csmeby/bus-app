@@ -1020,17 +1020,23 @@ export default function MapScreen() {
             top when a bus and a stop coincide, reinforced by the explicit zIndex. */}
         {filteredBuses.flatMap(bus => {
           const color = routeColors[bus.route] ?? '#CC2936';
-          // Dim buses on the non-selected direction. routeDirections stores API
-          // keys; bus.directionKey is also an API key — direct comparison works.
-          // When routes_patterns.json is stale we can't trust the direction
-          // mapping, so isStaleRoute disables dimming and shows all at full opacity.
-          const userPick = routeDirections[bus.route];
+          // Dim buses on the non-selected direction. Uses the exact same
+          // getDir() the polylines use for their default-bolded direction
+          // (explicit pick, else the first available direction) instead of
+          // the raw routeDirections value — that raw value is undefined
+          // until the user actually taps a direction chip, which previously
+          // made every bus show at full opacity the instant a route was
+          // first selected (matching neither polyline: one of them is
+          // already bolded by default) until the user switched directions
+          // once. When routes_patterns.json is stale we can't trust the
+          // direction mapping at all, so isStaleRoute disables dimming and
+          // shows all buses at full opacity instead of guessing.
+          const selectedDir = getDir(bus.route);
           const isBusSelectedDir =
             selectedRoutes.includes('all') ||
             isStaleRoute(bus.route) ||
-            userPick == null ||
             bus.directionKey == null ||
-            bus.directionKey === userPick;
+            bus.directionKey === selectedDir;
           const busFillColor = isBusSelectedDir ? color : dimColor(color);
           const hasHeading = typeof bus.heading === 'number' && !isNaN(bus.heading);
           // Shared by this bus's icon, heading arrow, and (if open) its callout
@@ -1211,7 +1217,7 @@ export default function MapScreen() {
       {/* ── Floating panel ────────────────────────────────────────────────── */}
       <View style={[styles.panel, { top: insets.top + 8, backgroundColor: panelBg, borderColor: panelBorder }]}>
         <View style={styles.panelHeader}>
-          <Text style={[styles.panelTitle, { color: c.text }]}>TAMU Buses</Text>
+          <Text style={[styles.panelTitle, { color: c.text }]}>Bus Routes</Text>
           <View style={styles.badge}>
             <View style={[styles.badgeDot, { backgroundColor: filteredBuses.length > 0 ? '#22C55E' : c.textSecondary }]} />
             <Text style={[styles.badgeText, { color: c.textSecondary }]}>{filteredBuses.length} active</Text>

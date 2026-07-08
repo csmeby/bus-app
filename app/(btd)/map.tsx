@@ -156,7 +156,7 @@ export default function BtdMapScreen() {
           <Text style={[styles.panelTitle, { color: c.text }]}>Brazos Transit District</Text>
         </View>
         <Text style={[styles.panelSubtitle, { color: c.textSecondary }]}>
-          Fixed routes, no live tracking available.
+          No live tracking available.
         </Text>
         <TouchableOpacity
           style={[styles.routeSelector, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}

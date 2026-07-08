@@ -82,10 +82,26 @@ export type RideWindow = {
   end: string;
 };
 
-export type AlertPrefs = {
-  routes: string[];        // route short names to get alerts for
-  schedule: RideWindow[];  // empty = delay alerts any time; set = only inside windows
+// Per-route alert settings — delay threshold and schedule are independent per
+// route (someone might want a 5-minute threshold on a route they catch for a
+// tight connection, and a lax 20-minute one elsewhere), and reroute alerts
+// are a separate opt-in from delay alerts entirely since they always fire
+// regardless of the schedule window.
+export type RouteAlertConfig = {
+  route: string;
+  notifyDelays: boolean;
+  delayThresholdMinutes: number;  // default 10
+  schedule: RideWindow[];         // empty = delay alerts any time; set = only inside windows
+  notifyReroutes: boolean;        // always fires regardless of schedule — detours matter any time
 };
+
+export type AlertPrefs = {
+  routeConfigs: RouteAlertConfig[];
+};
+
+export function defaultRouteAlertConfig(route: string): RouteAlertConfig {
+  return { route, notifyDelays: true, delayThresholdMinutes: 10, schedule: [], notifyReroutes: true };
+}
 
 /**
  * Gets the push token and POSTs it (plus alert preferences, when given) to
@@ -107,7 +123,7 @@ export async function registerPushTokenWithServer(
       body: JSON.stringify({
         token,
         platform: Platform.OS,
-        ...(prefs ? { routes: prefs.routes, schedule: prefs.schedule } : {}),
+        ...(prefs ? { routeConfigs: prefs.routeConfigs } : {}),
       }),
     });
     if (!res.ok) {

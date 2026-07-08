@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ALL_ROUTES } from '@/constants/routes';
@@ -12,32 +12,56 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { API_BASE } from '@/lib/api-base';
 import {
   AlertPrefs,
-  RideWindow,
+  RouteAlertConfig,
+  defaultRouteAlertConfig,
   registerPushTokenWithServer,
   requestNotificationPermission,
   sendLocalTestNotification,
 } from '@/lib/notifications';
 
 const ENABLED_KEY = 'notifications-enabled';
-const PREFS_KEY = 'alert-prefs';
+const PREFS_KEY = 'alert-prefs-v2';
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; // index = server weekday (Mon=0)
 
-// Half-hour choices for the window pickers, 6:00 AM through 11:00 PM.
-const TIME_CHOICES: string[] = [];
-for (let h = 6; h <= 23; h++) {
-  TIME_CHOICES.push(`${String(h).padStart(2, '0')}:00`);
-  if (h < 23) TIME_CHOICES.push(`${String(h).padStart(2, '0')}:30`);
-}
+const EMPTY_PREFS: AlertPrefs = { routeConfigs: [] };
 
-function formatChoice(hm: string): string {
-  const [h, m] = hm.split(':').map(Number);
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  const hr = h % 12 || 12;
-  return `${hr}:${String(m).padStart(2, '0')} ${ampm}`;
-}
+// Free-text HH:MM entry — the picker-chip version of this only offered
+// fixed 30-minute increments, which is what this replaces. Keeps its own
+// draft text so a mid-typing value like "8:" doesn't get validated away
+// before the user's finished, only reformatting/committing on blur.
+function TimeField({
+  value, onChange, c,
+}: { value: string; onChange: (v: string) => void; c: any }) {
+  const [text, setText] = useState(value);
+  useEffect(() => { setText(value); }, [value]);
 
-const EMPTY_PREFS: AlertPrefs = { routes: [], schedule: [] };
+  const commit = () => {
+    const m = text.match(/^(\d{1,2}):?(\d{2})$/);
+    if (m) {
+      const h = Math.min(23, parseInt(m[1], 10));
+      const min = Math.min(59, parseInt(m[2], 10));
+      const formatted = `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+      setText(formatted);
+      if (formatted !== value) onChange(formatted);
+    } else {
+      setText(value); // invalid — revert to the last good value
+    }
+  };
+
+  return (
+    <TextInput
+      value={text}
+      onChangeText={setText}
+      onBlur={commit}
+      placeholder="08:00"
+      placeholderTextColor={c.textSecondary}
+      keyboardType="numbers-and-punctuation"
+      maxLength={5}
+      style={[styles.timeInput, { color: c.text, backgroundColor: c.surfaceAlt, borderColor: c.border }]}
+    />
+  );
+}
 
 export default function NotificationsScreen() {
   const scheme = useColorScheme();
@@ -48,7 +72,7 @@ export default function NotificationsScreen() {
   const [busy, setBusy] = useState(false);
   const [pushAvailable, setPushAvailable] = useState<boolean | null>(null);
   const [prefs, setPrefs] = useState<AlertPrefs>(EMPTY_PREFS);
-  const loadedRef = useRef(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -60,7 +84,6 @@ export default function NotificationsScreen() {
       if (prefsRaw) {
         try { setPrefs({ ...EMPTY_PREFS, ...JSON.parse(prefsRaw) }); } catch {}
       }
-      loadedRef.current = true;
       if (enabledRaw === 'true') {
         setEnabled(true);
         registerPushTokenWithServer(API_BASE).then(token => setPushAvailable(!!token));
@@ -68,8 +91,8 @@ export default function NotificationsScreen() {
     })();
   }, []);
 
-  // Persist + push prefs to the server, debounced so rapid chip-tapping
-  // doesn't fire a request per tap.
+  // Persist + push prefs to the server, debounced so rapid typing/tapping
+  // doesn't fire a request per keystroke.
   const updatePrefs = useCallback((updater: (prev: AlertPrefs) => AlertPrefs) => {
     setPrefs(prev => {
       const next = updater(prev);
@@ -105,52 +128,66 @@ export default function NotificationsScreen() {
     }
   };
 
-  const toggleRoute = (route: string) =>
+  const configFor = (route: string) => prefs.routeConfigs.find(rc => rc.route === route);
+
+  const addRoute = (route: string) => {
+    updatePrefs(p => ({ ...p, routeConfigs: [...p.routeConfigs, defaultRouteAlertConfig(route)] }));
+    setExpanded(prev => new Set(prev).add(route));
+  };
+
+  const removeRoute = (route: string) =>
+    updatePrefs(p => ({ ...p, routeConfigs: p.routeConfigs.filter(rc => rc.route !== route) }));
+
+  const updateRoute = (route: string, patch: Partial<RouteAlertConfig>) =>
     updatePrefs(p => ({
       ...p,
-      routes: p.routes.includes(route) ? p.routes.filter(r => r !== route) : [...p.routes, route],
+      routeConfigs: p.routeConfigs.map(rc => (rc.route === route ? { ...rc, ...patch } : rc)),
     }));
 
-  // "Always" is the default (empty schedule = alerts any time, per the
-  // server's contract — see notifications.py's _in_window). Switching to
-  // "Specific times" seeds one starter window so there's immediately
-  // something to edit instead of an empty section; switching back to
-  // "Always" clears it so the empty-means-always contract holds.
-  const hasSchedule = prefs.schedule.length > 0;
-  const setScheduleMode = (mode: 'always' | 'custom') => {
+  const toggleExpanded = (route: string) =>
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(route)) next.delete(route); else next.add(route);
+      return next;
+    });
+
+  const setScheduleMode = (route: string, mode: 'always' | 'custom') => {
     if (mode === 'always') {
-      updatePrefs(p => ({ ...p, schedule: [] }));
-    } else if (!hasSchedule) {
-      updatePrefs(p => ({ ...p, schedule: [{ days: [0, 1, 2, 3, 4], start: '08:00', end: '10:00' }] }));
+      updateRoute(route, { schedule: [] });
+    } else {
+      updateRoute(route, { schedule: [{ days: [0, 1, 2, 3, 4], start: '08:00', end: '10:00' }] });
     }
   };
 
-  const otherRoutes = ALL_ROUTES.filter(r => !favorites.includes(r));
+  const addWindow = (route: string) => {
+    const rc = configFor(route);
+    if (!rc) return;
+    updateRoute(route, { schedule: [...rc.schedule, { days: [0, 1, 2, 3, 4], start: '08:00', end: '10:00' }] });
+  };
 
-  const addWindow = () =>
-    updatePrefs(p => ({
-      ...p,
-      schedule: [...p.schedule, { days: [0, 1, 2, 3, 4], start: '08:00', end: '10:00' }],
-    }));
+  const removeWindow = (route: string, idx: number) => {
+    const rc = configFor(route);
+    if (!rc) return;
+    updateRoute(route, { schedule: rc.schedule.filter((_, i) => i !== idx) });
+  };
 
-  const removeWindow = (idx: number) =>
-    updatePrefs(p => ({ ...p, schedule: p.schedule.filter((_, i) => i !== idx) }));
+  const updateWindow = (route: string, idx: number, patch: Partial<RouteAlertConfig['schedule'][number]>) => {
+    const rc = configFor(route);
+    if (!rc) return;
+    updateRoute(route, { schedule: rc.schedule.map((w, i) => (i === idx ? { ...w, ...patch } : w)) });
+  };
 
-  const updateWindow = (idx: number, patch: Partial<RideWindow>) =>
-    updatePrefs(p => ({
-      ...p,
-      schedule: p.schedule.map((w, i) => (i === idx ? { ...w, ...patch } : w)),
-    }));
-
-  const toggleWindowDay = (idx: number, day: number) =>
-    updatePrefs(p => ({
-      ...p,
-      schedule: p.schedule.map((w, i) =>
+  const toggleWindowDay = (route: string, idx: number, day: number) => {
+    const rc = configFor(route);
+    if (!rc) return;
+    updateRoute(route, {
+      schedule: rc.schedule.map((w, i) =>
         i === idx
           ? { ...w, days: w.days.includes(day) ? w.days.filter(d => d !== day) : [...w.days, day].sort() }
           : w,
       ),
-    }));
+    });
+  };
 
   const sendTest = async () => {
     const granted = await requestNotificationPermission();
@@ -160,6 +197,16 @@ export default function NotificationsScreen() {
     }
     await sendLocalTestNotification();
   };
+
+  const addedRoutes = prefs.routeConfigs.map(rc => rc.route);
+  const addableRoutes = ALL_ROUTES.filter(r => !addedRoutes.includes(r));
+  // Favorites first, in the add-a-route picker, so the routes someone's
+  // actually likely to want are one tap away instead of buried in the list.
+  const sortedAddable = [...addableRoutes].sort((a, b) => {
+    const af = favorites.includes(a) ? 0 : 1;
+    const bf = favorites.includes(b) ? 0 : 1;
+    return af - bf;
+  });
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
@@ -195,128 +242,141 @@ export default function NotificationsScreen() {
 
         {enabled && (
           <>
-            {/* ── Alert routes ─────────────────────────────────────────── */}
-            <Text style={[styles.sectionTitle, { color: c.text }]}>Favorite Routes</Text>
+            <Text style={[styles.sectionTitle, { color: c.text }]}>My Routes</Text>
             <Text style={[styles.sectionDesc, { color: c.textSecondary }]}>
-              You'll get detour and service alerts for these any time they're posted,
-              and delay alerts per your schedule below.
+              Add a route to set up its alerts. Detours always come right away for
+              any added route; delay alerts follow that route's own threshold and schedule below.
             </Text>
-            {favorites.length > 0 ? (
-              <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-                {favorites.map((route, i) => {
-                  const on = prefs.routes.includes(route);
-                  return (
-                    <View
-                      key={route}
-                      style={[styles.row, i > 0 && { borderTopWidth: 1, borderTopColor: c.border }]}
-                    >
-                      <Text style={[styles.rowLabel, { color: c.text, flex: 1 }]}>Route {route}</Text>
-                      <Switch value={on} onValueChange={() => toggleRoute(route)} />
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <Text style={[styles.sectionDesc, { color: c.textSecondary }]}>
-                Star routes on the map's route picker to have them show up here.
+
+            {prefs.routeConfigs.length === 0 && (
+              <Text style={[styles.sectionDesc, { color: c.textSecondary, fontStyle: 'italic' }]}>
+                No routes added yet — pick one below.
               </Text>
             )}
 
-            {otherRoutes.length > 0 && (
-              <>
-                <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 16, color: c.textSecondary }]}>Other routes</Text>
-                <View style={styles.chipWrap}>
-                  {otherRoutes.map(route => {
-                    const on = prefs.routes.includes(route);
-                    return (
-                      <TouchableOpacity
-                        key={route}
-                        style={[styles.routeChip, { backgroundColor: on ? c.tint : c.surfaceAlt, borderColor: on ? c.tint : c.border }]}
-                        onPress={() => toggleRoute(route)}
-                      >
-                        <Text style={[styles.routeChipText, { color: on ? '#fff' : c.text }]}>{route}</Text>
+            {prefs.routeConfigs.map(rc => {
+              const isOpen = expanded.has(rc.route);
+              const hasSchedule = rc.schedule.length > 0;
+              return (
+                <View key={rc.route} style={[styles.routeCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+                  <TouchableOpacity style={styles.routeCardHeader} onPress={() => toggleExpanded(rc.route)} activeOpacity={0.7}>
+                    <Text style={[styles.routeCardTitle, { color: c.text }]}>Route {rc.route}</Text>
+                    <View style={styles.routeCardHeaderRight}>
+                      <TouchableOpacity onPress={() => removeRoute(rc.route)} hitSlop={8} style={{ marginRight: 12 }}>
+                        <MaterialIcons name="close" size={18} color={c.textSecondary} />
                       </TouchableOpacity>
-                    );
-                  })}
+                      <MaterialIcons name={isOpen ? 'expand-less' : 'expand-more'} size={22} color={c.textSecondary} />
+                    </View>
+                  </TouchableOpacity>
+
+                  {isOpen && (
+                    <View style={styles.routeCardBody}>
+                      {/* Delay threshold */}
+                      <View style={styles.delayRow}>
+                        <Text style={[styles.delayLabel, { color: c.text }]}>Notify me if running</Text>
+                        <TextInput
+                          value={String(rc.delayThresholdMinutes)}
+                          onChangeText={t => {
+                            const digits = t.replace(/[^0-9]/g, '');
+                            updateRoute(rc.route, { delayThresholdMinutes: digits === '' ? 0 : parseInt(digits, 10) });
+                          }}
+                          keyboardType="number-pad"
+                          maxLength={3}
+                          style={[styles.delayInput, { color: c.text, backgroundColor: c.surfaceAlt, borderColor: c.border }]}
+                        />
+                        <Text style={[styles.delayLabel, { color: c.text }]}>minutes late</Text>
+                      </View>
+
+                      {/* Delay schedule */}
+                      <Text style={[styles.subLabel, { color: c.textSecondary }]}>
+                        Notify me during these times if the route is running late:
+                      </Text>
+                      <View style={[styles.segmentWrap, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
+                        <TouchableOpacity
+                          style={[styles.segmentBtn, !hasSchedule && { backgroundColor: c.tint }]}
+                          onPress={() => setScheduleMode(rc.route, 'always')}
+                        >
+                          <Text style={[styles.segmentText, { color: !hasSchedule ? '#fff' : c.textSecondary }]}>Always</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.segmentBtn, hasSchedule && { backgroundColor: c.tint }]}
+                          onPress={() => setScheduleMode(rc.route, 'custom')}
+                        >
+                          <Text style={[styles.segmentText, { color: hasSchedule ? '#fff' : c.textSecondary }]}>Specific times</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {hasSchedule && rc.schedule.map((w, idx) => (
+                        <View key={idx} style={[styles.windowCard, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
+                          <View style={styles.windowHeader}>
+                            <Text style={[styles.windowTitle, { color: c.text }]}>Window {idx + 1}</Text>
+                            <TouchableOpacity onPress={() => removeWindow(rc.route, idx)} hitSlop={8}>
+                              <MaterialIcons name="delete-outline" size={18} color={c.textSecondary} />
+                            </TouchableOpacity>
+                          </View>
+                          <View style={styles.dayRow}>
+                            {DAY_LABELS.map((label, day) => {
+                              const on = w.days.includes(day);
+                              return (
+                                <TouchableOpacity
+                                  key={label}
+                                  style={[styles.dayChip, { backgroundColor: on ? c.tint : c.surface }]}
+                                  onPress={() => toggleWindowDay(rc.route, idx, day)}
+                                >
+                                  <Text style={[styles.dayChipText, { color: on ? '#fff' : c.textSecondary }]}>{label}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                          <View style={styles.timeRow}>
+                            <Text style={[styles.timeLabel, { color: c.textSecondary }]}>From</Text>
+                            <TimeField value={w.start} onChange={t => updateWindow(rc.route, idx, { start: t })} c={c} />
+                            <Text style={[styles.timeLabel, { color: c.textSecondary }]}>To</Text>
+                            <TimeField value={w.end} onChange={t => updateWindow(rc.route, idx, { end: t })} c={c} />
+                          </View>
+                        </View>
+                      ))}
+
+                      {hasSchedule && (
+                        <TouchableOpacity style={[styles.inlineBtn, { borderColor: c.border }]} onPress={() => addWindow(rc.route)}>
+                          <MaterialIcons name="add" size={16} color={c.tint} />
+                          <Text style={[styles.inlineBtnText, { color: c.tint }]}>Add another window</Text>
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Reroutes — independent of the schedule above, always fires */}
+                      <View style={[styles.row, { paddingHorizontal: 0, marginTop: 14 }]}>
+                        <View style={styles.rowText}>
+                          <Text style={[styles.rowLabel, { color: c.text }]}>Notify me about reroutes</Text>
+                          <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Always sent right away, regardless of the schedule above.</Text>
+                        </View>
+                        <Switch
+                          value={rc.notifyReroutes}
+                          onValueChange={v => updateRoute(rc.route, { notifyReroutes: v })}
+                        />
+                      </View>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+
+            {sortedAddable.length > 0 && (
+              <>
+                <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 20, color: c.textSecondary }]}>Add a route</Text>
+                <View style={styles.chipWrap}>
+                  {sortedAddable.map(route => (
+                    <TouchableOpacity
+                      key={route}
+                      style={[styles.routeChip, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
+                      onPress={() => addRoute(route)}
+                    >
+                      {favorites.includes(route) && <Text style={{ fontSize: 11 }}>★ </Text>}
+                      <Text style={[styles.routeChipText, { color: c.text }]}>{route}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
               </>
-            )}
-
-            {/* ── Ride schedule ────────────────────────────────────────── */}
-            <Text style={[styles.sectionTitle, { color: c.text }]}>Alert Schedule</Text>
-            <Text style={[styles.sectionDesc, { color: c.textSecondary }]}>
-              Detour alerts always come right away, any time. Delay alerts
-              (10+ minutes behind) can be limited to the times you actually ride.
-            </Text>
-
-            <View style={[styles.segmentWrap, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
-              <TouchableOpacity
-                style={[styles.segmentBtn, !hasSchedule && { backgroundColor: c.tint }]}
-                onPress={() => setScheduleMode('always')}
-              >
-                <Text style={[styles.segmentText, { color: !hasSchedule ? '#fff' : c.textSecondary }]}>Always</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.segmentBtn, hasSchedule && { backgroundColor: c.tint }]}
-                onPress={() => setScheduleMode('custom')}
-              >
-                <Text style={[styles.segmentText, { color: hasSchedule ? '#fff' : c.textSecondary }]}>Specific times</Text>
-              </TouchableOpacity>
-            </View>
-
-            {hasSchedule && prefs.schedule.map((w, idx) => (
-              <View key={idx} style={[styles.windowCard, { backgroundColor: c.surface, borderColor: c.border }]}>
-                <View style={styles.windowHeader}>
-                  <Text style={[styles.windowTitle, { color: c.text }]}>
-                    {formatChoice(w.start)} – {formatChoice(w.end)}
-                  </Text>
-                  <TouchableOpacity onPress={() => removeWindow(idx)} hitSlop={8}>
-                    <MaterialIcons name="delete-outline" size={20} color={c.textSecondary} />
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.dayRow}>
-                  {DAY_LABELS.map((label, day) => {
-                    const on = w.days.includes(day);
-                    return (
-                      <TouchableOpacity
-                        key={label}
-                        style={[styles.dayChip, { backgroundColor: on ? c.tint : c.surfaceAlt }]}
-                        onPress={() => toggleWindowDay(idx, day)}
-                      >
-                        <Text style={[styles.dayChipText, { color: on ? '#fff' : c.textSecondary }]}>{label}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-                {(['start', 'end'] as const).map(field => (
-                  <View key={field} style={styles.timeRow}>
-                    <Text style={[styles.timeLabel, { color: c.textSecondary }]}>{field === 'start' ? 'From' : 'To'}</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      {TIME_CHOICES.map(t => {
-                        const on = w[field] === t;
-                        return (
-                          <TouchableOpacity
-                            key={t}
-                            style={[styles.timeChip, { backgroundColor: on ? c.tint : c.surfaceAlt }]}
-                            onPress={() => updateWindow(idx, { [field]: t } as Partial<RideWindow>)}
-                          >
-                            <Text style={[styles.timeChipText, { color: on ? '#fff' : c.textSecondary }]}>
-                              {formatChoice(t)}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                ))}
-              </View>
-            ))}
-
-            {hasSchedule && (
-              <TouchableOpacity style={[styles.inlineBtn, { borderColor: c.border }]} onPress={addWindow}>
-                <MaterialIcons name="add" size={16} color={c.tint} />
-                <Text style={[styles.inlineBtnText, { color: c.tint }]}>Add another window</Text>
-              </TouchableOpacity>
             )}
           </>
         )}
@@ -358,16 +418,25 @@ const styles = StyleSheet.create({
   sectionDesc: { fontSize: 12, lineHeight: 17, marginBottom: 12 },
 
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  routeChip: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
+  routeChip: { flexDirection: 'row', alignItems: 'center', borderRadius: 8, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
   routeChipText: { fontSize: 13, fontWeight: '600' },
 
-  segmentWrap: {
-    flexDirection: 'row',
-    borderRadius: 10,
-    borderWidth: 1,
-    padding: 3,
-    marginBottom: 14,
+  routeCard: { borderRadius: 14, borderWidth: 1, marginBottom: 10, overflow: 'hidden' },
+  routeCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14 },
+  routeCardHeaderRight: { flexDirection: 'row', alignItems: 'center' },
+  routeCardTitle: { fontSize: 15, fontWeight: '700' },
+  routeCardBody: { paddingHorizontal: 14, paddingBottom: 14 },
+
+  delayRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' },
+  delayLabel: { fontSize: 14, fontWeight: '500' },
+  delayInput: {
+    borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6,
+    fontSize: 14, fontWeight: '700', minWidth: 44, textAlign: 'center',
   },
+
+  subLabel: { fontSize: 12, fontWeight: '600', marginBottom: 8 },
+
+  segmentWrap: { flexDirection: 'row', borderRadius: 10, borderWidth: 1, padding: 3, marginBottom: 10 },
   segmentBtn: { flex: 1, borderRadius: 8, paddingVertical: 9, alignItems: 'center' },
   segmentText: { fontSize: 13, fontWeight: '700' },
 
@@ -379,20 +448,22 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     paddingVertical: 10,
-    marginTop: 12,
+    marginTop: 4,
   },
   inlineBtnText: { fontSize: 13, fontWeight: '600' },
 
-  windowCard: { borderRadius: 14, borderWidth: 1, padding: 12, marginBottom: 10 },
+  windowCard: { borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 10 },
   windowHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  windowTitle: { fontSize: 15, fontWeight: '700' },
+  windowTitle: { fontSize: 13, fontWeight: '700' },
   dayRow: { flexDirection: 'row', gap: 6, marginBottom: 10 },
   dayChip: { flex: 1, borderRadius: 7, paddingVertical: 6, alignItems: 'center' },
   dayChipText: { fontSize: 11, fontWeight: '600' },
-  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
-  timeLabel: { fontSize: 12, fontWeight: '600', width: 36 },
-  timeChip: { borderRadius: 7, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6 },
-  timeChipText: { fontSize: 12, fontWeight: '500' },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  timeLabel: { fontSize: 12, fontWeight: '600' },
+  timeInput: {
+    borderRadius: 7, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6,
+    fontSize: 13, fontWeight: '600', minWidth: 64, textAlign: 'center',
+  },
 
   testBtn: {
     flexDirection: 'row',
