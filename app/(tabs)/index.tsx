@@ -1,4 +1,6 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -27,6 +29,30 @@ import { cachedJsonFetch } from '@/lib/local-cache';
 import routePatterns from '../../routes_patterns.json';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+// Dedicated offline fallback for /route-patterns — deliberately separate from
+// lib/local-cache's generic cachedJsonFetch, which would treat a 200-with-{}
+// response (the server's "not validated yet" answer) as a legitimate value to
+// trust for its whole maxAge window. Only ever written with a verified
+// non-empty payload, so a stale/empty snapshot can never come back out of it.
+const ROUTE_PATTERNS_CACHE_KEY = 'cache:route-patterns-verified';
+
+async function getCachedRoutePatterns(): Promise<Record<string, any> | null> {
+  try {
+    const raw = await AsyncStorage.getItem(ROUTE_PATTERNS_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function setCachedRoutePatterns(data: Record<string, any>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(ROUTE_PATTERNS_CACHE_KEY, JSON.stringify(data));
+  } catch {
+    // best-effort
+  }
+}
 
 function dimColor(hex: string): string {
   const h = hex.replace('#', '').replace(/^(\w{3})$/, '$1$1').slice(0, 6);
@@ -107,6 +133,48 @@ function minutesUntil(raw: string): number | null {
   }
 }
 
+// Upstream marks isEstimated=true on every departure it has live GPS data
+// for, not just the imminent one — a bus can be confidently tracked toward a
+// stop it won't reach for another couple hours. Converting that to "118m"
+// reads as a countdown when it's really just a clock time; cap the live
+// countdown display to departures actually coming up soon and let anything
+// farther out show as a normal clock time.
+const LIVE_ESTIMATE_MAX_MINUTES = 45;
+
+// Swaps in live-estimated departure times over their matching scheduled
+// entries — matched by closest absolute time within a 20-minute window, since
+// there's no shared trip ID between the live (GetNextDepartTimes) and
+// schedule (GetStopSchedules) responses. Used so the full-day view opened
+// from a live row reflects the same "bus is running a few minutes late/early"
+// estimate (with its live-dot symbol) instead of just the raw scheduled time.
+function mergeLiveEstimates(fullEntry: TimeEntry, liveEntry: TimeEntry): TimeEntry {
+  const liveTimes = liveEntry.departureTimes.filter(t => t.isEstimated && !t.isCancelled);
+  if (liveTimes.length === 0) return fullEntry;
+  const merged = fullEntry.departureTimes.map(t => ({ ...t }));
+  const usedIdx = new Set<number>();
+  liveTimes.forEach(liveT => {
+    let bestIdx = -1;
+    let bestDiff = Infinity;
+    merged.forEach((st, idx) => {
+      if (usedIdx.has(idx) || st.isCancelled) return;
+      const diff = Math.abs(new Date(st.time).getTime() - new Date(liveT.time).getTime());
+      if (diff < bestDiff) { bestDiff = diff; bestIdx = idx; }
+    });
+    if (bestIdx >= 0 && bestDiff <= 20 * 60 * 1000) {
+      merged[bestIdx] = liveT;
+      usedIdx.add(bestIdx);
+    }
+  });
+  return { ...fullEntry, departureTimes: merged };
+}
+
+function liveMinutesLabel(t: DepartureTime): string | null {
+  if (!t.isEstimated || t.isCancelled) return null;
+  const mins = minutesUntil(t.time);
+  if (mins === null || mins > LIVE_ESTIMATE_MAX_MINUTES) return null;
+  return mins === 0 ? 'Now' : `${mins} min`;
+}
+
 // Bus IDs from the API are like "B2002" — strip the leading "B" for display
 // ("Bus 2002" reads better than "Bus B2002").
 function busDisplayName(name: string): string {
@@ -120,13 +188,8 @@ function formatCountdown(totalSeconds: number): string {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
-// Upstream interruption/amenity shapes aren't pinned down yet — fall back
-// through the common field names rather than assuming one.
-function interruptionText(item: any): string {
-  if (typeof item === 'string') return item;
-  return item?.message ?? item?.description ?? item?.text ?? item?.title ?? item?.headerText ?? 'Service interruption';
-}
-
+// Upstream amenity shapes aren't pinned down yet — fall back through the
+// common field names rather than assuming one.
 function amenityLabel(item: any): string {
   if (typeof item === 'string') return item;
   return item?.name ?? item?.amenityType ?? item?.type ?? item?.description ?? 'Amenity';
@@ -186,6 +249,14 @@ type StopTimesPayload = {
   amenities: any[];
 };
 
+type RerouteDir = {
+  directionName: string;
+  since: string;
+  currentCoordinates: { latitude: number; longitude: number }[];
+  baselineCoordinates: { latitude: number; longitude: number }[];
+  unservedStops: string[];
+};
+
 // ── component ─────────────────────────────────────────────────────────────────
 
 export default function MapScreen() {
@@ -194,6 +265,22 @@ export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const { isFavorite } = useFavorites();
   const { consumePendingRoutes } = useTrip();
+
+  // Whether we've been granted location permission — gates showsUserLocation
+  // so the map doesn't sit there silently failing to show a blue dot for
+  // someone who never granted it (or hasn't been asked yet).
+  const [locationGranted, setLocationGranted] = useState(false);
+  useEffect(() => {
+    (async () => {
+      const { status: existing } = await Location.getForegroundPermissionsAsync();
+      if (existing === 'granted') {
+        setLocationGranted(true);
+        return;
+      }
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setLocationGranted(status === 'granted');
+    })();
+  }, []);
 
   const [buses, setBuses] = useState<any[]>([]);
   // One AnimatedRegion per bus (keyed by name), reused across polls so a
@@ -213,6 +300,10 @@ export default function MapScreen() {
   const [routeLines, setRouteLines] = useState<Record<string, Record<string, { latitude: number; longitude: number }[]>>>({});
   const [stops, setStops] = useState<Stop[]>([]);
   const [routeInfo, setRouteInfo] = useState<Record<string, RouteInfo>>({});
+  // Live reroute detections from /reroutes: route -> dirKey -> geometry info.
+  // Rerouted directions draw the CURRENT path solid and the regular path as a
+  // red dashed line, with unserved stops badged (see reroute_watch.py server-side).
+  const [reroutes, setReroutes] = useState<Record<string, Record<string, RerouteDir>>>({});
   // Route short names with an active service disruption per /news (construction
   // reroutes, closures, etc) — shown as a warning badge in the route picker.
   const [disruptedRoutes, setDisruptedRoutes] = useState<Set<string>>(new Set());
@@ -232,7 +323,6 @@ export default function MapScreen() {
   const [stopScheduleLoading, setStopScheduleLoading] = useState(false);
   const [stopAmenities, setStopAmenities] = useState<any[]>([]);
   const [expandedEntry, setExpandedEntry] = useState<TimeEntry | null>(null);
-  const [expandedInterruption, setExpandedInterruption] = useState<any | null>(null);
   const [expandedEntryDate, setExpandedEntryDate] = useState<string | null>(null);
   // Stops we've learned are closed for at least one route, discovered lazily
   // when their schedule is fetched (no proactive bulk lookup for every pin).
@@ -267,10 +357,16 @@ export default function MapScreen() {
   // ── route helpers ──────────────────────────────────────────────────────────
 
   const toggleRoute = (route: string) => {
-    if (route === 'all') { setSelectedRoutes(['all']); return; }
+    if (route === 'all') {
+      // Tapping ALL toggles it off to an empty selection rather than being sticky.
+      setSelectedRoutes(prev => (prev.includes('all') ? [] : ['all']));
+      return;
+    }
     let next = selectedRoutes.filter(r => r !== 'all');
     next = next.includes(route) ? next.filter(r => r !== route) : [...next, route];
-    setSelectedRoutes(next.length === 0 ? ['all'] : next);
+    // Deselecting the last route leaves the map empty — it does NOT jump back
+    // to 'all routes', which was disorienting (and rendered everything at once).
+    setSelectedRoutes(next);
   };
 
   // Resolution order: explicit user pick > live /routes first direction (if it
@@ -281,10 +377,16 @@ export default function MapScreen() {
   // app never shows the wrong direction at full opacity.
   const isStaleRoute = (route: string): boolean => {
     const apiDirs = routeInfo[route]?.directions ?? [];
-    if (apiDirs.length === 0) return false; // routeInfo not yet loaded
-    const pKeys = new Set(Object.keys(routeLines[route] ?? {}));
-    if (pKeys.size === 0) return false;     // polylines not yet loaded
-    return !apiDirs.some(d => pKeys.has(d.key));
+    if (apiDirs.length === 0) return false;
+    const pKeysArray = Object.keys(routeLines[route] ?? {}).map(k => k.toLowerCase().trim());
+    if (pKeysArray.length === 0) return false;
+    
+    // Check if at least one direction key from the API matches a key in our polyline definitions
+    const stale = !apiDirs.some(d => {
+      const ak = (d.key || '').toLowerCase().trim();
+      return ak && pKeysArray.includes(ak);
+    });
+    return stale;
   };
 
   // Always returns a polyline key (from routes_patterns.json).
@@ -319,6 +421,16 @@ export default function MapScreen() {
     Object.entries(routeInfo).forEach(([r, info]) => { m[r] = info.color; });
     return m;
   }, [routeInfo]);
+
+  // Stops skipped by an active reroute on any currently-visible route.
+  const unservedStopCodes = useMemo(() => {
+    const s = new Set<string>();
+    Object.entries(reroutes).forEach(([route, dirs]) => {
+      if (!(selectedRoutes.includes('all') || selectedRoutes.includes(route))) return;
+      Object.values(dirs).forEach(d => (d.unservedStops ?? []).forEach(code => s.add(code)));
+    });
+    return s;
+  }, [reroutes, selectedRoutes]);
 
   const filteredBuses = useMemo(() => {
     const list = selectedRoutes.includes('all') ? buses : buses.filter(b => selectedRoutes.includes(b.route));
@@ -393,20 +505,6 @@ export default function MapScreen() {
     });
   }, [stopTimes, stopSchedule, stopDate, showAllStopRoutes, selectedRoutes]);
 
-  // De-duplicated service interruptions across whichever times list is active
-  const activeInterruptions = useMemo(() => {
-    const list = stopDate ? stopSchedule : stopTimes;
-    const seen = new Set<string>();
-    const out: any[] = [];
-    for (const entry of list) {
-      for (const item of entry.serviceInterruptions ?? []) {
-        const key = JSON.stringify(item);
-        if (!seen.has(key)) { seen.add(key); out.push(item); }
-      }
-    }
-    return out;
-  }, [stopTimes, stopSchedule, stopDate]);
-
   // Picks up a route hand-off from Plan a Ride's "Start" button. Tab screens stay
   // mounted when you switch away, so a normal useEffect[] would only fire once on
   // first visit — useFocusEffect re-checks every time this tab regains focus.
@@ -422,10 +520,45 @@ export default function MapScreen() {
   // ── data loading ───────────────────────────────────────────────────────────
 
   useEffect(() => {
+    // Paint immediately from the bundled snapshot, then swap in the server's
+    // freshly-built patterns (current-semester direction UUIDs) when they
+    // arrive. The bundle is only a cold-start/offline fallback — the server
+    // copy is what keeps direction keys matching /routes and /buses.
+    // No maxAgeMs here on purpose: the server returns {} until its own
+    // rebuild has finished and validated, and cachedJsonFetch would persist
+    // and trust that empty response as "fresh" for the whole window,
+    // blocking correction the moment the server did have good data. Always
+    // hit the network on each of these infrequent (15-min) polls; the local
+    // cache is only consulted as an offline fallback on fetch failure, and
+    // only non-empty responses ever get stored into it below.
+    applyPatterns(routePatterns);
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/route-patterns`);
+        const data = res.ok ? await res.json() : null;
+        if (!cancelled && data && Object.keys(data).length > 0) {
+          applyPatterns(data);
+          setCachedRoutePatterns(data);
+        }
+      } catch {
+        // Offline — fall back to the last-known-good server copy, if any
+        // (still better than nothing, and never an empty/invalid snapshot
+        // since only non-empty responses are ever written to this cache key).
+        const cached = await getCachedRoutePatterns();
+        if (!cancelled && cached) applyPatterns(cached);
+      }
+    };
+    load();
+    const id = setInterval(load, 15 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  function applyPatterns(source: Record<string, any>) {
     const lines: Record<string, Record<string, { latitude: number; longitude: number }[]>> = {};
     const stopMap = new Map<string, Stop>();
 
-    Object.entries(routePatterns).forEach(([route, routeData]) => {
+    Object.entries(source).forEach(([route, routeData]) => {
       const { patterns } = routeData as any;
       const routeDirs: Record<string, { latitude: number; longitude: number }[]> = {};
 
@@ -436,7 +569,7 @@ export default function MapScreen() {
       // / "to MSC", not inbound/outbound at all).
       Object.entries(patterns as Record<string, any>).forEach(([, pattern], idx) => {
         if (!pattern.coordinates) return;
-        const dirKey: string = pattern.direction_key || `pattern_${idx}`;
+        const dirKey: string = (pattern.direction_key || `pattern_${idx}`).toLowerCase();
 
         routeDirs[dirKey] = (pattern.coordinates as any[]).map(({ lat, lng }) => ({
           latitude: lat,
@@ -473,20 +606,21 @@ export default function MapScreen() {
 
     setRouteLines(lines);
     setStops(Array.from(stopMap.values()));
-  }, []);
+  }
 
   useEffect(() => {
     // Route names/colors/directions barely ever change mid-semester — serve
     // the cached copy outright for up to a day, and fall back to it
     // regardless of age if the server's unreachable.
-    cachedJsonFetch<any[]>(`${API_BASE}/routes`, 'routes', { maxAgeMs: 24 * 60 * 60 * 1000 })
+    // Fetch routes with a much shorter cache to prevent mismatch with fresh patterns
+    cachedJsonFetch<any[]>(`${API_BASE}/routes`, 'routes', { maxAgeMs: 5 * 60 * 1000 })
       .then((data: any[]) => {
         const info: Record<string, RouteInfo> = {};
         data.forEach(r => {
           info[r.shortName] = {
             name: r.name,
             color: r.color ?? '#500000',
-            directions: r.directions ?? [],
+            directions: (r.directions ?? []).map((d: any) => ({ ...d, key: d.key?.toLowerCase() })),
           };
         });
         setRouteInfo(info);
@@ -518,13 +652,41 @@ export default function MapScreen() {
       try {
         const res = await fetch(`${API_BASE}/buses`);
         const data: any[] = await res.json();
-        setBuses(data);
+        setBuses(data.map(b => ({ ...b, directionKey: b.directionKey?.toLowerCase() })));
       } catch (e) {
         console.warn('Bus fetch failed:', e);
       }
     }
     fetchBuses();
     const id = setInterval(fetchBuses, 10000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    // Server re-checks pattern geometry every 5 minutes; polling faster than
+    // half that gains nothing.
+    async function fetchReroutes() {
+      try {
+        const res = await fetch(`${API_BASE}/reroutes`);
+        const data = await res.json();
+        if (data && typeof data === 'object') {
+          const normalized: Record<string, any> = {};
+          Object.entries(data).forEach(([route, dirs]: [string, any]) => {
+            normalized[route] = {};
+            Object.entries(dirs).forEach(([dk, info]) => {
+              normalized[route][dk.toLowerCase()] = info;
+            });
+          });
+          setReroutes(normalized);
+        } else {
+          setReroutes({});
+        }
+      } catch {
+        // keep the last-known reroute state on failure
+      }
+    }
+    fetchReroutes();
+    const id = setInterval(fetchReroutes, 150000);
     return () => clearInterval(id);
   }, []);
 
@@ -634,17 +796,22 @@ export default function MapScreen() {
     // Tracked separately from stopDate, which can change/clear while this
     // modal is still open — "is this time in the past" only makes sense
     // relative to whichever date this specific entry's times actually belong to.
-    setExpandedEntryDate(stopDate ?? toDateStr(new Date()));
-    if (stopDate || !selectedStop) return;
+    const date = stopDate ?? toDateStr(new Date());
+    setExpandedEntryDate(date);
+    if (!selectedStop) return;
+    // Always swap in the complete day's schedule for this route+direction:
+    // the live view's rows only carry the next ~3 departures, and the today-
+    // schedule fallback's rows are filtered to upcoming times only — either
+    // way the tapped row is incomplete for a "full day" view. Past times
+    // render dimmed (see the isPast style in the modal) rather than hidden.
     try {
-      const today = toDateStr(new Date());
       const data = await cachedJsonFetch<StopTimesPayload>(
-        `${API_BASE}/stop/${selectedStop.code}/schedule?date=${today}`,
-        `stop-schedule:${selectedStop.code}:${today}`,
+        `${API_BASE}/stop/${selectedStop.code}/schedule?date=${date}`,
+        `stop-schedule:${selectedStop.code}:${date}`,
       );
       const entries = Array.isArray(data?.entries) ? data.entries : [];
       const full = entries.find(e => e.routeShortName === item.routeShortName && e.direction === item.direction);
-      if (full) setExpandedEntry(full);
+      if (full) setExpandedEntry(mergeLiveEstimates(full, item));
     } catch (e) {
       console.warn('Full-day schedule fetch failed:', e);
     }
@@ -764,6 +931,8 @@ export default function MapScreen() {
         userInterfaceStyle={scheme}
         customMapStyle={scheme === 'dark' ? DARK_MAP_STYLE : []}
         initialRegion={{ latitude: 30.615, longitude: -96.34, latitudeDelta: 0.022, longitudeDelta: 0.022 }}
+        showsUserLocation={locationGranted}
+        showsMyLocationButton={locationGranted}
         onPress={() => {
           if (selectedBusName) closeBusCallout();
         }}
@@ -786,25 +955,64 @@ export default function MapScreen() {
             // show everything at full color. When fresh, only the selected
             // direction is full-color; the other is dimmed.
             const isSelectedDir = polylineCount === 1 || stale || dirKey === effectiveDir;
+            // A rerouted direction's bundled geometry is outdated — hide it;
+            // the reroute overlay below draws both the live path and the
+            // dashed regular path instead.
+            const isRerouted = !!reroutes[route]?.[dirKey];
             let strokeColor: string;
-            if (!isActive) {
+            if (!isActive || isRerouted) {
               strokeColor = 'rgba(0,0,0,0)';
             } else if (isSelectedDir) {
               strokeColor = color;
             } else {
               strokeColor = dimColor(color);
             }
-            // Stable key: prevents ghost polylines from unmount/remount cycles.
-            // strokeWidth=0 for inactive reliably hides without unmounting.
+            // Every polyline stays mounted at all times (an unmounted polyline
+            // is what leaves ghosts — the native layer can retain it). The key
+            // encodes the current visual state (stroke color covers active/dim/
+            // selected-direction), so any visual change remounts to a freshly
+            // painted native element — react-native-maps does not reliably
+            // repaint on prop-only changes to a stable key, which is why paths
+            // "didn't load" when switching routes.
             return (
               <Polyline
-                key={`line-${route}-${dirKey}`}
+                key={`line-${route}-${dirKey}-${strokeColor}`}
                 coordinates={path}
                 strokeColor={strokeColor}
                 strokeWidth={isActive && isSelectedDir ? 5 : isActive ? 3.5 : 0}
                 zIndex={isActive && isSelectedDir ? 2 : isActive ? 1 : 0}
               />
             );
+          });
+        })}
+
+        {/* Reroute overlays — for each rerouted direction of a visible route:
+            the path buses are ACTUALLY driving right now, solid in the route
+            color, plus the regular path as a red dashed line so the detour is
+            unmistakable (same treatment the official transit site uses). */}
+        {Object.entries(reroutes).flatMap(([route, dirs]) => {
+          const isActive = selectedRoutes.includes('all') || selectedRoutes.includes(route);
+          if (!isActive) return [];
+          const color = routeColors[route] ?? '#888888';
+          return Object.entries(dirs).flatMap(([dk, info]) => {
+            if (!Array.isArray(info?.currentCoordinates) || info.currentCoordinates.length < 2) return [];
+            return [
+              <Polyline
+                key={`reroute-base-${route}-${dk}`}
+                coordinates={info.baselineCoordinates}
+                strokeColor="#DC2626"
+                strokeWidth={3}
+                lineDashPattern={[14, 10]}
+                zIndex={2}
+              />,
+              <Polyline
+                key={`reroute-cur-${route}-${dk}-${color}`}
+                coordinates={info.currentCoordinates}
+                strokeColor={color}
+                strokeWidth={5}
+                zIndex={3}
+              />,
+            ];
           });
         })}
 
@@ -881,6 +1089,9 @@ export default function MapScreen() {
             without querying every stop's schedule upfront. */}
         {filteredStops.map(stop => {
           const isClosed = closedStopCodes.has(stop.code);
+          // A stop an active reroute skips — dimmed like a closed stop but
+          // badged with an ✕ so it reads as "not served right now".
+          const isUnserved = unservedStopCodes.has(stop.code);
           const isTimepoint = isStopTimepointForSelection(stop);
           return (
             <Marker
@@ -904,10 +1115,16 @@ export default function MapScreen() {
                       : isTimepoint
                       ? styles.timepointIcon
                       : styles.stopIcon,
-                    isClosed && styles.closedStopIcon,
+                    (isClosed || isUnserved) && styles.closedStopIcon,
                   ]}
                 />
-                {isClosed && <View style={styles.closedStopBadge} />}
+                {isUnserved ? (
+                  <View style={styles.unservedStopBadge}>
+                    <Text style={styles.unservedStopBadgeText}>✕</Text>
+                  </View>
+                ) : isClosed ? (
+                  <View style={styles.closedStopBadge} />
+                ) : null}
               </View>
             </Marker>
           );
@@ -995,9 +1212,9 @@ export default function MapScreen() {
       <View style={[styles.panel, { top: insets.top + 8, backgroundColor: panelBg, borderColor: panelBorder }]}>
         <View style={styles.panelHeader}>
           <Text style={[styles.panelTitle, { color: c.text }]}>TAMU Buses</Text>
-          <View style={[styles.badge, { backgroundColor: c.tint + '22' }]}>
+          <View style={styles.badge}>
             <View style={[styles.badgeDot, { backgroundColor: filteredBuses.length > 0 ? '#22C55E' : c.textSecondary }]} />
-            <Text style={[styles.badgeText, { color: c.tint }]}>{filteredBuses.length} active</Text>
+            <Text style={[styles.badgeText, { color: c.textSecondary }]}>{filteredBuses.length} active</Text>
           </View>
         </View>
         <TouchableOpacity
@@ -1043,7 +1260,7 @@ export default function MapScreen() {
               // immediately even before the /routes API call returns.
               const apiDirs = routeInfo[item]?.directions ?? [];
               const patternKeys = Object.values((info?.patterns ?? {}) as Record<string, any>)
-                .map((p: any, i) => ({ key: p.direction_key || `pattern_${i}`, name: '' }));
+                .map((p: any, i) => ({ key: (p.direction_key || `pattern_${i}`).toLowerCase(), name: '' }));
               const directions = apiDirs.length > 0 ? apiDirs : patternKeys;
               const hasMultipleDirs = directions.length > 1;
               // routeDirections stores API keys (set when user taps a button).
@@ -1153,20 +1370,6 @@ export default function MapScreen() {
             </View>
           )}
 
-          {/* Service interruption banner — tap to read the full notice */}
-          {activeInterruptions.length > 0 && (
-            <View style={[styles.interruptionBanner, { marginBottom: 8 }]}>
-              {activeInterruptions.map((item, i) => (
-                <TouchableOpacity key={i} onPress={() => setExpandedInterruption(item)} activeOpacity={0.7}>
-                  <View style={styles.interruptionRow}>
-                    <Text style={styles.interruptionText} numberOfLines={2}>⚠ {interruptionText(item)}</Text>
-                    <Text style={styles.interruptionChevron}>›</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-
           {/* Route filter toggle — shown when specific routes are selected and times exist */}
           {!selectedRoutes.includes('all') && (stopTimes.length > 0 || stopSchedule.length > 0) && (
             <TouchableOpacity
@@ -1179,52 +1382,31 @@ export default function MapScreen() {
             </TouchableOpacity>
           )}
 
-          {/* Times content */}
+          {/* Times content. The day-browser row (Today/Tomorrow/...) is always
+              visible so a rider can check any day's full schedule regardless
+              of whether live estimates are currently showing — it used to be
+              hidden any time live times were available, which was most of
+              the time. Live view is shown when nobody's tapped a date chip
+              yet (stopDate === null); tapping any chip (including "Today")
+              switches to that day's full published schedule instead. */}
           {stopTimesLoading ? (
             <View style={styles.stopTimesCenter}>
               <ActivityIndicator color={c.tint} />
               <Text style={[styles.stopTimesHint, { color: c.textSecondary }]}>Loading departures…</Text>
             </View>
-          ) : stopTimes.length > 0 ? (
-            // Real-time departures available
-            visibleStopTimes.length > 0 ? (
-              <FlatList
-                data={visibleStopTimes}
-                keyExtractor={(_, i) => String(i)}
-                style={{ maxHeight: 280 }}
-                renderItem={({ item }) => <TimeEntryRow item={item} routeColors={routeColors} c={c} onPress={() => openExpandedEntry(item)} />}
-              />
-            ) : (
-              <View style={styles.stopTimesCenter}>
-                <Text style={[styles.stopTimesHint, { color: c.textSecondary }]}>
-                  No upcoming times for selected routes.{'\n'}Tap "Show all route times" above.
-                </Text>
-              </View>
-            )
           ) : (
-            // No real-time data — if we auto-loaded today's schedule, show it
-            // directly without the "no more departures" header. Only show that
-            // header + date picker when the user is browsing a future date or
-            // today's schedule is also empty.
             (() => {
               const todayStr = toDateStr(new Date());
-              const showingToday = stopDate === todayStr;
+              const showingLive = !stopDate && stopTimes.length > 0;
               return (
                 <View>
-                  {!showingToday && (
-                    <View style={styles.noTimesHeader}>
-                      <Text style={[styles.noTimesText, { color: c.text }]}>No more departures today</Text>
-                      <Text style={[styles.noTimesSubtext, { color: c.textSecondary }]}>View scheduled times:</Text>
-                    </View>
-                  )}
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.dateChipRow}
                   >
-                    {/* Today chip always first — pre-selected since auto-fallback already loaded today */}
                     {(() => {
-                      const isSelected = showingToday;
+                      const isSelected = stopDate === todayStr;
                       return (
                         <TouchableOpacity
                           key={todayStr}
@@ -1255,22 +1437,46 @@ export default function MapScreen() {
                     })}
                   </ScrollView>
 
-                  {stopScheduleLoading ? (
-                    <View style={styles.stopTimesCenter}>
-                      <ActivityIndicator color={c.tint} />
-                    </View>
-                  ) : stopDate && visibleStopTimes.length > 0 ? (
-                    <FlatList
-                      data={visibleStopTimes}
-                      keyExtractor={(_, i) => String(i)}
-                      style={{ maxHeight: showingToday ? 280 : 220 }}
-                      renderItem={({ item }) => <TimeEntryRow item={item} routeColors={routeColors} c={c} onPress={() => openExpandedEntry(item)} />}
-                    />
-                  ) : stopDate ? (
-                    <View style={styles.stopTimesCenter}>
-                      <Text style={[styles.stopTimesHint, { color: c.textSecondary }]}>No scheduled service for this date.</Text>
+                  {showingLive ? (
+                    visibleStopTimes.length > 0 ? (
+                      <FlatList
+                        data={visibleStopTimes}
+                        keyExtractor={(_, i) => String(i)}
+                        style={{ maxHeight: 220 }}
+                        renderItem={({ item }) => <TimeEntryRow item={item} routeColors={routeColors} c={c} onPress={() => openExpandedEntry(item)} />}
+                      />
+                    ) : (
+                      <View style={styles.stopTimesCenter}>
+                        <Text style={[styles.stopTimesHint, { color: c.textSecondary }]}>
+                          No upcoming times for selected routes.{'\n'}Tap "Show all route times" above.
+                        </Text>
+                      </View>
+                    )
+                  ) : !stopDate ? (
+                    <View style={styles.noTimesHeader}>
+                      <Text style={[styles.noTimesText, { color: c.text }]}>No more departures today</Text>
+                      <Text style={[styles.noTimesSubtext, { color: c.textSecondary }]}>View scheduled times:</Text>
                     </View>
                   ) : null}
+
+                  {stopDate && (
+                    stopScheduleLoading ? (
+                      <View style={styles.stopTimesCenter}>
+                        <ActivityIndicator color={c.tint} />
+                      </View>
+                    ) : visibleStopTimes.length > 0 ? (
+                      <FlatList
+                        data={visibleStopTimes}
+                        keyExtractor={(_, i) => String(i)}
+                        style={{ maxHeight: 220 }}
+                        renderItem={({ item }) => <TimeEntryRow item={item} routeColors={routeColors} c={c} onPress={() => openExpandedEntry(item)} />}
+                      />
+                    ) : (
+                      <View style={styles.stopTimesCenter}>
+                        <Text style={[styles.stopTimesHint, { color: c.textSecondary }]}>No scheduled service for this date.</Text>
+                      </View>
+                    )
+                  )}
                 </View>
               );
             })()
@@ -1313,21 +1519,26 @@ export default function MapScreen() {
                 const isToday = expandedEntryDate === toDateStr(new Date());
                 const parsed = new Date(t.time);
                 const isPast = !t.isCancelled && isToday && !isNaN(parsed.getTime()) && parsed.getTime() < Date.now();
-                const mins = isToday && t.isEstimated && !t.isCancelled ? minutesUntil(t.time) : null;
-                const liveLabel = mins !== null ? (mins === 0 ? 'Now' : `${mins}m`) : null;
+                // This view shows the actual clock time, not a countdown — if
+                // the bus is running 2 min late, that's "6:02" here (already
+                // the live-adjusted time, via mergeLiveEstimates), just with
+                // the dot marking it as an estimate rather than the raw
+                // scheduled time. The "X min" countdown is only for the
+                // compact row chips (TimeEntryRow) elsewhere.
+                const isLiveEstimate = isToday && t.isEstimated && !t.isCancelled;
                 return (
                   <View style={[
                     styles.fullScheduleChip,
-                    { backgroundColor: t.isCancelled ? 'rgba(220,38,38,0.1)' : liveLabel ? c.tint + '20' : c.surfaceAlt },
+                    { backgroundColor: t.isCancelled ? 'rgba(220,38,38,0.1)' : c.surfaceAlt },
                     isPast && styles.fullScheduleChipPast,
                   ]}>
-                    {liveLabel && <View style={[styles.liveDot, { backgroundColor: c.tint }]} />}
+                    {isLiveEstimate && <View style={[styles.liveDot, { backgroundColor: c.tint }]} />}
                     <Text style={[
                       styles.fullScheduleChipText,
-                      t.isCancelled ? styles.fullScheduleChipTextCancelled : { color: isPast ? c.textSecondary : liveLabel ? c.tint : c.text },
+                      t.isCancelled ? styles.fullScheduleChipTextCancelled : { color: isPast ? c.textSecondary : c.text },
                       t.isCancelled && styles.strikethrough,
                     ]}>
-                      {t.isCancelled ? `✕ ${formatTime(t.time)}` : liveLabel ?? formatTime(t.time)}
+                      {t.isCancelled ? `✕ ${formatTime(t.time)}` : formatTime(t.time)}
                     </Text>
                   </View>
                 );
@@ -1340,27 +1551,6 @@ export default function MapScreen() {
         </Modal>
       )}
 
-      {/* ── Service interruption detail modal ─────────────────────────────── */}
-      {expandedInterruption && (
-        <Modal visible transparent animationType="fade" onRequestClose={() => setExpandedInterruption(null)}>
-          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setExpandedInterruption(null)} />
-          <View style={[styles.interruptionCard, { backgroundColor: sheetBg, paddingBottom: insets.bottom + 24 }]}>
-            <View style={[styles.sheetHandle, { backgroundColor: c.border }]} />
-            <View style={[styles.stopSheetHeader, { borderBottomColor: c.border }]}>
-              <Text style={styles.interruptionCardIcon}>⚠</Text>
-              <Text style={[styles.stopSheetTitle, { color: c.text, flex: 1 }]}>Service Interruption</Text>
-              <TouchableOpacity onPress={() => setExpandedInterruption(null)} style={styles.closeBtn}>
-                <Text style={[styles.closeBtnText, { color: c.textSecondary }]}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 }}>
-              <Text style={[styles.interruptionCardText, { color: c.text }]}>
-                {interruptionText(expandedInterruption)}
-              </Text>
-            </ScrollView>
-          </View>
-        </Modal>
-      )}
     </View>
   );
 }
@@ -1402,16 +1592,15 @@ function TimeEntryRow({ item, routeColors, c, onPress }: { item: TimeEntry; rout
       </View>
       <View style={styles.stopTimesChips}>
         {times.slice(0, 4).map((t, i) => {
-          const mins = t.isEstimated ? minutesUntil(t.time) : null;
-          const liveLabel = mins !== null ? (mins === 0 ? 'Now' : `${mins}m`) : null;
+          const liveLabel = liveMinutesLabel(t);
           return (
-            <View key={i} style={[styles.timeChip, t.isEstimated && !t.isCancelled && { backgroundColor: c.tint + '20' }]}>
+            <View key={i} style={[styles.timeChip, { backgroundColor: c.surfaceAlt }]}>
               {liveLabel !== null && (
                 <View style={[styles.liveDot, { backgroundColor: c.tint }]} />
               )}
               <Text style={[
                 styles.timeChipText,
-                { color: t.isCancelled ? c.textSecondary : liveLabel !== null ? c.tint : c.text },
+                { color: t.isCancelled ? c.textSecondary : c.text },
                 t.isCancelled && styles.strikethrough,
               ]}>
                 {t.isCancelled ? formatTime(t.time) : liveLabel ?? formatTime(t.time)}
@@ -1485,6 +1674,20 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#fff',
   },
+  unservedStopBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#DC2626',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unservedStopBadgeText: { color: '#fff', fontSize: 8, fontWeight: '900', lineHeight: 9 },
 
   // Bus callout
   callout: {
@@ -1602,13 +1805,10 @@ const styles = StyleSheet.create({
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    gap: 5,
+    gap: 6,
   },
-  badgeDot: { width: 6, height: 6, borderRadius: 3 },
-  badgeText: { fontSize: 12, fontWeight: '600' },
+  badgeDot: { width: 7, height: 7, borderRadius: 3.5 },
+  badgeText: { fontSize: 13, fontWeight: '500' },
   routeSelector: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1760,32 +1960,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   closeBtnText: { fontSize: 16, fontWeight: '500' },
-  interruptionBanner: {
-    marginHorizontal: 20,
-    marginTop: 12,
-    borderRadius: 10,
-    backgroundColor: 'rgba(249,115,22,0.12)',
-    overflow: 'hidden',
-  },
-  interruptionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 8,
-  },
-  interruptionText: { flex: 1, fontSize: 12, fontWeight: '500', color: '#C2410C' },
-  interruptionChevron: { fontSize: 18, color: '#C2410C', marginTop: -1 },
-  interruptionCard: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-  },
-  interruptionCardIcon: { fontSize: 20, marginRight: 8 },
-  interruptionCardText: { fontSize: 15, lineHeight: 22 },
   holdBanner: {
     position: 'relative',
     overflow: 'hidden',

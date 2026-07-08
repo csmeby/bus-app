@@ -44,6 +44,7 @@ type Leg = {
   direction?: string;
   color?: string;
   path?: LatLon[];
+  departTime?: string; // ISO — only present on 'wait' legs: when that bus actually leaves the stop
 };
 
 type Itinerary = {
@@ -748,7 +749,10 @@ export default function PlanRideScreen() {
                   {itin.legs.map((leg, j) => (
                     <View key={j} style={styles.legRow}>
                       <MaterialIcons name={legIcon(leg)} size={16} color={leg.color ?? c.textSecondary} />
-                      <Text style={[styles.legText, { color: c.text }]}>{leg.description}</Text>
+                      <Text style={[styles.legText, { color: c.text }]}>
+                        {leg.description}
+                        {leg.type === 'wait' && leg.departTime ? ` (leaves at ${formatClock(leg.departTime)})` : ''}
+                      </Text>
                       <Text style={[styles.legMinutes, { color: c.textSecondary }]}>{leg.minutes} min</Text>
                     </View>
                   ))}

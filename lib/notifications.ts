@@ -76,12 +76,27 @@ export async function getExpoPushToken(): Promise<string | null> {
   }
 }
 
+export type RideWindow = {
+  days: number[];   // 0 = Monday … 6 = Sunday (matches the server's Python weekday())
+  start: string;    // "HH:MM" 24h
+  end: string;
+};
+
+export type AlertPrefs = {
+  routes: string[];        // route short names to get alerts for
+  schedule: RideWindow[];  // empty = delay alerts any time; set = only inside windows
+};
+
 /**
- * Gets the push token and POSTs it to your backend so it can target this
- * device. Returns the token even if the server call fails so the caller can
- * still log/display it.
+ * Gets the push token and POSTs it (plus alert preferences, when given) to
+ * the backend so it can target this device. Omitting `prefs` re-registers the
+ * token without touching previously stored preferences. Returns the token
+ * even if the server call fails so the caller can still log/display it.
  */
-export async function registerPushTokenWithServer(apiBase: string): Promise<string | null> {
+export async function registerPushTokenWithServer(
+  apiBase: string,
+  prefs?: AlertPrefs,
+): Promise<string | null> {
   const token = await getExpoPushToken();
   if (!token) return null;
 
@@ -89,7 +104,11 @@ export async function registerPushTokenWithServer(apiBase: string): Promise<stri
     const res = await fetch(`${apiBase}/notifications/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, platform: Platform.OS }),
+      body: JSON.stringify({
+        token,
+        platform: Platform.OS,
+        ...(prefs ? { routes: prefs.routes, schedule: prefs.schedule } : {}),
+      }),
     });
     if (!res.ok) {
       console.warn('[notifications] Server returned non-OK status:', res.status);
