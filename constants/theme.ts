@@ -1,5 +1,3 @@
-import { Platform } from 'react-native';
-
 export const Colors = {
   light: {
     text: '#11181C',
@@ -9,9 +7,7 @@ export const Colors = {
     surfaceAlt: '#F0F0F2',
     border: '#E5E5EA',
     tint: '#500000',
-    icon: '#687076',
     tabIconDefault: '#687076',
-    tabIconSelected: '#500000',
   },
   dark: {
     text: '#ECEDEE',
@@ -21,32 +17,9 @@ export const Colors = {
     surfaceAlt: '#2C2C2E',
     border: '#3A3A3C',
     tint: '#CC2936',
-    icon: '#9BA1A6',
     tabIconDefault: '#9BA1A6',
-    tabIconSelected: '#CC2936',
   },
 };
-
-export const Fonts = Platform.select({
-  ios: {
-    sans: 'system-ui',
-    serif: 'ui-serif',
-    rounded: 'ui-rounded',
-    mono: 'ui-monospace',
-  },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    serif: "Georgia, 'Times New Roman', serif",
-    rounded: "'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif",
-    mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-  },
-});
 
 export const DARK_MAP_STYLE = [
   { elementType: 'geometry', stylers: [{ color: '#1a1a2e' }] },

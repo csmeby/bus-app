@@ -1,8 +1,8 @@
-import { router } from 'expo-router';
 import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScreenHeader } from '@/components/screen-header';
 import { useAppTheme, ThemeMode } from '@/context/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
@@ -20,14 +20,12 @@ export default function ThemeScreen() {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.6}>
-          <Text style={[styles.backArrow, { color: c.tint }]}>‹</Text>
-        </TouchableOpacity>
-        <Text style={[styles.pageTitle, { color: c.text }]}>Theme</Text>
-      </View>
+      <ScreenHeader title="Theme" bottomMargin={24} />
 
-      <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+      <View
+        style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
+        accessibilityRole="radiogroup"
+      >
         {APPEARANCE_OPTIONS.map((opt, i) => (
           <TouchableOpacity
             key={opt.value}
@@ -37,6 +35,10 @@ export default function ThemeScreen() {
             ]}
             onPress={() => setMode(opt.value)}
             activeOpacity={0.6}
+            accessibilityRole="radio"
+            accessibilityLabel={opt.label}
+            accessibilityHint={opt.description}
+            accessibilityState={{ checked: mode === opt.value }}
           >
             <View style={styles.rowText}>
               <Text style={[styles.rowLabel, { color: c.text }]}>{opt.label}</Text>
@@ -62,10 +64,6 @@ export default function ThemeScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, paddingHorizontal: 20 },
-  header: { flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 24 },
-  backBtn: { paddingRight: 10, paddingVertical: 4 },
-  backArrow: { fontSize: 30, fontWeight: '300' },
-  pageTitle: { fontSize: 28, fontWeight: '700' },
   card: { borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14 },
   rowBorder: { borderBottomWidth: StyleSheet.hairlineWidth },

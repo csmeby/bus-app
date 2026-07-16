@@ -1,13 +1,15 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { ErrorBoundary } from '@/components/error-boundary';
-import { requestNotificationPermission, getExpoPushToken } from '@/lib/notifications';
+import { API_BASE } from '@/lib/api-base';
+import { NOTIFICATIONS_ENABLED_KEY, registerPushTokenWithServer } from '@/lib/notifications';
 import { setupGlobalErrorLogging } from '@/lib/error-logging';
 import { FavoritesProvider } from '@/context/favorites-context';
 import { ThemeProvider, useAppTheme } from '@/context/theme-context';
-import { TripProvider } from '@/context/trip-context';
+import { UnitCodesProvider } from '@/context/unit-codes-context';
 import { useEffect } from 'react';
 
 setupGlobalErrorLogging();
@@ -23,7 +25,6 @@ function RootLayoutInner() {
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(btd)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         <Stack.Screen name="theme" options={{ headerShown: false }} />
         <Stack.Screen name="favorites" options={{ headerShown: false }} />
         <Stack.Screen name="disruptions" options={{ headerShown: false }} />
@@ -38,20 +39,26 @@ function RootLayoutInner() {
 export default function RootLayout() {
   useEffect(() => {
     (async () => {
-      const granted = await requestNotificationPermission();
-      console.log('Permission granted?', granted);
-      
-      const token = await getExpoPushToken();
-      console.log('🔑 TOKEN:', token);
+      // Re-registers the push token on every launch, but only if the user
+      // already opted in via More > Notifications — this app never asks for
+      // notification permission unprompted. Without this, a token rotated
+      // by Expo/reinstall would leave the device stuck receiving nothing
+      // until the user happened to revisit the Notifications screen, which
+      // matters most for reroute/delay alerts since those only ever land
+      // while the app is backgrounded or closed.
+      const enabled = await AsyncStorage.getItem(NOTIFICATIONS_ENABLED_KEY);
+      if (enabled === 'true') {
+        registerPushTokenWithServer(API_BASE).catch(() => {});
+      }
     })();
   }, []);
   return (
     <ErrorBoundary>
       <ThemeProvider>
         <FavoritesProvider>
-          <TripProvider>
+          <UnitCodesProvider>
             <RootLayoutInner />
-          </TripProvider>
+          </UnitCodesProvider>
         </FavoritesProvider>
       </ThemeProvider>
     </ErrorBoundary>

@@ -1,50 +1,34 @@
-# Welcome to your Expo app 👋
+# TAMU Bus Tracker (app)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo / React Native app for tracking Texas A&M's AggieSpirit buses live, planning
+rides, and browsing schedules. Talks to the Flask backend in `../server`
+(base URL in `lib/api-base.ts`).
 
-## Get started
+## Screens
 
-1. Install dependencies
+- **Map** (`app/(tabs)/index.tsx`) — live bus positions, route polylines,
+  stop departure times, reroute overlays, timepoint hold countdowns.
+- **Plan** (`app/(tabs)/plan.tsx`) — trip planner (origin/destination search
+  via bundled stops + Photon, `/trip-plan` on the server).
+- **Calendar** (`app/(tabs)/calendar.tsx`) — service calendar.
+- **More** (`app/(tabs)/settings.tsx`) — theme, favorites, disruptions,
+  help, notifications, plus the separate Brazos Transit District mode
+  (`app/(btd)/`, fixed schedules only).
 
-   ```bash
-   npm install
-   ```
+`routes_patterns.json` is a bundled snapshot of route geometry/stops used for
+cold-start/offline; the server's `/route-patterns` (rebuilt every 12 h) is the
+source of truth for current-semester direction UUIDs.
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Development
 
 ```bash
-npm run reset-project
+npm install
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Type-check and lint:
 
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+npx tsc --noEmit
+npm run lint
+```

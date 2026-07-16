@@ -1,3 +1,4 @@
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import React from 'react';
 import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -25,9 +26,9 @@ const TICKETS_AND_PASSES = [
 ];
 
 const REDUCED_PASSES = [
-  { label: 'Day Pass*', price: '$1.75' },
-  { label: 'Weekly Pass*', price: '$7.50' },
-  { label: 'Monthly Pass*', price: '$22.50' },
+  { label: 'Day Pass', price: '$1.75' },
+  { label: 'Weekly Pass', price: '$7.50' },
+  { label: 'Monthly Pass', price: '$22.50' },
   { label: 'S&D PunchPass*', sub: '40 one-way trips', price: '$20.00' },
 ];
 
@@ -39,7 +40,7 @@ const PURCHASE_LOCATIONS = [
 
 const RIDING_RULES = [
   'Stand away from the curb until the bus is completely stopped.',
-  'Have exact fare ready — drivers do not make change.',
+  'Have exact fare ready - drivers do not make change.',
   'Watch your step getting on and off the bus.',
   'Use the handrails and sit in a seat as soon as possible.',
   "Don't let children play or stand on the seats.",
@@ -55,7 +56,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   const c = Colors[scheme];
   return (
     <View style={styles.section}>
-      <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>{title}</Text>
+      <Text style={[styles.sectionLabel, { color: c.textSecondary }]} accessibilityRole="header">{title}</Text>
       <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>{children}</View>
     </View>
   );
@@ -84,9 +85,9 @@ export default function BtdInfoScreen() {
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
       <View style={styles.header}>
-        <Text style={[styles.pageTitle, { color: c.text }]}>Brazos Transit District</Text>
+        <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">Brazos Transit District</Text>
         <Text style={[styles.pageSubtitle, { color: c.textSecondary }]}>
-          Fixed routes serving Bryan & College Station — separate from TAMU&apos;s AggieSpirit buses.
+          Fixed routes serving Bryan & College Station.
         </Text>
       </View>
 
@@ -96,6 +97,9 @@ export default function BtdInfoScreen() {
             <FareRow key={f.label} {...f} isLast={i === FIXED_ROUTE_FARES.length - 1} />
           ))}
         </Section>
+        <Text style={[styles.footnote, { color: c.textSecondary }]}>
+          *Must present a valid student, faculty, or staff ID.
+        </Text>
 
         <Section title="TICKETS & PASSES">
           {TICKETS_AND_PASSES.map((f, i) => (
@@ -103,13 +107,13 @@ export default function BtdInfoScreen() {
           ))}
         </Section>
 
-        <Section title="REDUCED PASSES*">
+        <Section title="REDUCED PASSES">
           {REDUCED_PASSES.map((f, i) => (
             <FareRow key={f.label} {...f} isLast={i === REDUCED_PASSES.length - 1} />
           ))}
         </Section>
         <Text style={[styles.footnote, { color: c.textSecondary }]}>
-          *Must present a valid school-issued or BTD-issued ID card while boarding.
+          *S&D Punch Passes are only available to clients who have been issued either a S-Pass or D-Pass card.
         </Text>
 
         <Section title="WHERE TO BUY TICKETS & PASSES">
@@ -125,29 +129,41 @@ export default function BtdInfoScreen() {
           <TouchableOpacity
             style={[styles.locationRow, styles.rowBorder, { borderBottomColor: c.border, borderTopWidth: 0 }]}
             onPress={() => Linking.openURL('tel:9797780607').catch(() => {})}
+            accessibilityRole="link"
+            accessibilityLabel="Purchase over the phone, 9 7 9. 7 7 8. 0 6 0 7"
+            accessibilityHint="Calls BTD"
           >
             <Text style={[styles.fareLabel, { color: c.text }]}>Purchase over the phone</Text>
             <Text style={[styles.fareSub, { color: tint }]}>979-778-0607</Text>
           </TouchableOpacity>
         </Section>
 
-        <Section title="DAYS & HOURS OF OPERATION">
-          <View style={styles.plainRow}>
-            <Text style={[styles.fareLabel, { color: c.text }]}>Monday - Friday, 5:00 AM - 7:00 PM</Text>
+        <View style={[styles.hoursCard, { backgroundColor: tint + '14', borderColor: tint + '33' }]}>
+          <MaterialIcons name="schedule" size={18} color={tint} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.fareLabel, { color: c.text }]}>Monday – Friday, 5:00 AM – 7:00 PM</Text>
             <Text style={[styles.fareSub, { color: c.textSecondary }]}>Excluding holidays. No weekend service.</Text>
           </View>
-        </Section>
+        </View>
 
         <Section title="MORE SERVICES">
           <View style={styles.plainRow}>
             <Text style={[styles.fareSub, { color: c.textSecondary, lineHeight: 19 }]}>
               For info about Senior/Disabled & Medicare passes, ADA Paratransit, and Demand & Response
               service, visit{' '}
-              <Text style={{ color: tint, fontWeight: '600' }} onPress={() => Linking.openURL('https://www.btd.org').catch(() => {})}>
+              <Text
+                style={{ color: tint, fontWeight: '600' }}
+                onPress={() => Linking.openURL('https://www.btd.org').catch(() => {})}
+                accessibilityRole="link"
+              >
                 btd.org
               </Text>{' '}
               or call{' '}
-              <Text style={{ color: tint, fontWeight: '600' }} onPress={() => Linking.openURL('tel:9797780607').catch(() => {})}>
+              <Text
+                style={{ color: tint, fontWeight: '600' }}
+                onPress={() => Linking.openURL('tel:9797780607').catch(() => {})}
+                accessibilityRole="link"
+              >
                 979-778-0607
               </Text>.
             </Text>
@@ -168,22 +184,37 @@ export default function BtdInfoScreen() {
 
         <Section title="CONTACT & QUESTIONS">
           <TouchableOpacity
-            style={[styles.locationRow, styles.rowBorder, { borderBottomColor: c.border }]}
+            style={[styles.contactRow, styles.rowBorder, { borderBottomColor: c.border }]}
             onPress={() => Linking.openURL('tel:9797780607').catch(() => {})}
+            accessibilityRole="link"
+            accessibilityLabel="Trip planning and general info, 9 7 9. 7 7 8. 0 6 0 7"
+            accessibilityHint="Calls BTD"
           >
-            <Text style={[styles.fareLabel, { color: c.text }]}>Trip planning & general info</Text>
-            <Text style={[styles.fareSub, { color: tint }]}>979-778-0607</Text>
+            <MaterialIcons name="phone" size={18} color={tint} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.fareLabel, { color: c.text }]}>Trip planning & general info</Text>
+              <Text style={[styles.fareSub, { color: tint }]}>979-778-0607</Text>
+            </View>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.locationRow, styles.rowBorder, { borderBottomColor: c.border }]}
+            style={[styles.contactRow, styles.rowBorder, { borderBottomColor: c.border }]}
             onPress={() => Linking.openURL('https://www.btd.org').catch(() => {})}
+            accessibilityRole="link"
+            accessibilityLabel="Website, btd.org"
+            accessibilityHint="Opens in your browser"
           >
-            <Text style={[styles.fareLabel, { color: c.text }]}>Website</Text>
-            <Text style={[styles.fareSub, { color: tint }]}>btd.org</Text>
+            <MaterialIcons name="language" size={18} color={tint} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.fareLabel, { color: c.text }]}>Website</Text>
+              <Text style={[styles.fareSub, { color: tint }]}>btd.org</Text>
+            </View>
           </TouchableOpacity>
-          <View style={styles.locationRow}>
-            <Text style={[styles.fareLabel, { color: c.text }]}>Social media</Text>
-            <Text style={[styles.fareSub, { color: c.textSecondary }]}>@brazostransitdistrict</Text>
+          <View style={styles.contactRow}>
+            <MaterialIcons name="alternate-email" size={18} color={c.textSecondary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.fareLabel, { color: c.text }]}>Social media</Text>
+              <Text style={[styles.fareSub, { color: c.textSecondary }]}>@brazostransitdistrict</Text>
+            </View>
           </View>
         </Section>
 
@@ -191,7 +222,11 @@ export default function BtdInfoScreen() {
           style={[styles.card, styles.switchModeCard, { backgroundColor: c.surface, borderColor: c.border }]}
           onPress={() => router.replace('/(tabs)' as any)}
           activeOpacity={0.6}
+          accessibilityRole="button"
+          accessibilityLabel="AggieSpirit Buses"
+          accessibilityHint="Switches back to TAMU's bus service"
         >
+          <MaterialIcons name="swap-horiz" size={22} color={Colors[scheme].tint} style={styles.switchIcon} />
           <View style={styles.rowText}>
             <Text style={[styles.rowLabel, { color: c.text }]}>AggieSpirit Buses</Text>
             <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Switch back to TAMU&apos;s bus service</Text>
@@ -223,6 +258,17 @@ const styles = StyleSheet.create({
 
   locationRow: { padding: 14 },
   plainRow: { padding: 14 },
+  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+
+  hoursCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 20,
+  },
 
   ruleRow: { flexDirection: 'row', padding: 12, paddingHorizontal: 14, gap: 8 },
   ruleBullet: { fontSize: 14, fontWeight: '700', lineHeight: 19 },
@@ -235,6 +281,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     marginTop: 24,
   },
+  switchIcon: { marginRight: 12 },
   rowText: { flex: 1, marginRight: 12 },
   rowLabel: { fontSize: 16, fontWeight: '500', marginBottom: 2 },
   rowDesc: { fontSize: 13 },

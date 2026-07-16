@@ -264,29 +264,143 @@ function colorForBusLeg(leg: Leg, multiRoute: boolean): string {
   return TRANSIT_COLOR;
 }
 
+// ── Location search field ────────────────────────────────────────────────────
+// One search box + results list, shared by the origin and destination cards
+// (they were identical apart from which state they wrote into). Owns its own
+// query/focus state; the parent only hears about the final pick.
+
+function LocationField({
+  valueLabel,
+  emptyLabel,
+  searchLabel,
+  onPick,
+  c,
+}: {
+  valueLabel: string | null;
+  emptyLabel: string;
+  searchLabel: string;
+  onPick: (point: LatLon, label: string) => void;
+  c: (typeof Colors)['light'];
+}) {
+  const [query, setQuery] = useState('');
+  const [focused, setFocused] = useState(false);
+  const stopMatches = useMemo(() => searchKnownStops(query), [query]);
+  const { results: placeMatches, searching } = usePhotonSearch(query);
+
+  const pick = (point: LatLon, label: string) => {
+    onPick(point, label);
+    setQuery('');
+    setFocused(false);
+  };
+
+  return (
+    <>
+      <Text style={[styles.locationLabel, { color: c.text }]} numberOfLines={1}>
+        {valueLabel ?? emptyLabel}
+      </Text>
+
+      <View style={[styles.searchBox, { borderColor: c.border, backgroundColor: c.surfaceAlt }]}>
+        <MaterialIcons name="search" size={18} color={c.textSecondary} />
+        <TextInput
+          style={[styles.searchInput, { color: c.text }]}
+          placeholder="Search a stop or address"
+          placeholderTextColor={c.textSecondary}
+          value={query}
+          onChangeText={setQuery}
+          onFocus={() => setFocused(true)}
+          returnKeyType="search"
+          accessibilityLabel={searchLabel}
+        />
+        {query.length > 0 && (
+          <TouchableOpacity
+            onPress={() => setQuery('')}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+          >
+            <MaterialIcons name="close" size={16} color={c.textSecondary} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {focused && query.trim().length > 0 && (
+        <View style={[styles.resultsList, { borderColor: c.border, backgroundColor: c.surfaceAlt }]}>
+          {stopMatches.map(stop => (
+            <TouchableOpacity
+              key={stop.code}
+              style={styles.resultRow}
+              onPress={() => pick({ lat: stop.lat, lon: stop.lng }, stop.name)}
+              activeOpacity={0.6}
+              accessibilityRole="button"
+              accessibilityLabel={`${stop.name}, bus stop, route${stop.routes.length > 1 ? 's' : ''} ${stop.routes.join(', ')}`}
+            >
+              <MaterialIcons name="directions-bus" size={16} color={c.tint} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.resultName, { color: c.text }]} numberOfLines={1}>{stop.name}</Text>
+                <Text style={[styles.resultSub, { color: c.textSecondary }]} numberOfLines={1}>
+                  Bus stop · Route{stop.routes.length > 1 ? 's' : ''} {stop.routes.join(', ')}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+
+          {stopMatches.length > 0 && (placeMatches.length > 0 || searching) && (
+            <View style={[styles.resultsDivider, { backgroundColor: c.border }]} />
+          )}
+
+          {searching && placeMatches.length === 0 && (
+            <View style={styles.resultRow}>
+              <ActivityIndicator size="small" color={c.tint} />
+              <Text style={[styles.resultSub, { color: c.textSecondary }]}>Searching nearby places…</Text>
+            </View>
+          )}
+
+          {placeMatches.map(place => (
+            <TouchableOpacity
+              key={place.id}
+              style={styles.resultRow}
+              onPress={() =>
+                pick({ lat: place.lat, lon: place.lon }, place.sublabel ? `${place.label}, ${place.sublabel}` : place.label)
+              }
+              activeOpacity={0.6}
+              accessibilityRole="button"
+              accessibilityLabel={place.sublabel ? `${place.label}, ${place.sublabel}` : place.label}
+            >
+              <MaterialIcons name="place" size={16} color={c.textSecondary} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.resultName, { color: c.text }]} numberOfLines={1}>{place.label}</Text>
+                {place.sublabel && (
+                  <Text style={[styles.resultSub, { color: c.textSecondary }]} numberOfLines={1}>{place.sublabel}</Text>
+                )}
+              </View>
+            </TouchableOpacity>
+          ))}
+
+          {query.trim().length < PHOTON_MIN_CHARS && stopMatches.length === 0 && (
+            <View style={styles.resultRow}>
+              <Text style={[styles.resultSub, { color: c.textSecondary }]}>Keep typing to search places…</Text>
+            </View>
+          )}
+        </View>
+      )}
+    </>
+  );
+}
+
 export default function PlanRideScreen() {
   const scheme = useColorScheme();
   const c = Colors[scheme];
 
   const [origin, setOrigin] = useState<LatLon | null>(null);
   const [originLabel, setOriginLabel] = useState<string | null>(null);
-  const [originQuery, setOriginQuery] = useState('');
-  const [originFocused, setOriginFocused] = useState(false);
 
   const [destination, setDestination] = useState<LatLon | null>(null);
   const [destinationLabel, setDestinationLabel] = useState<string | null>(null);
-  const [destQuery, setDestQuery] = useState('');
-  const [destFocused, setDestFocused] = useState(false);
 
   const [pickerFor, setPickerFor] = useState<'origin' | 'destination' | null>(null);
   const [pickerPoint, setPickerPoint] = useState<LatLon>({ lat: CAMPUS_REGION.latitude, lon: CAMPUS_REGION.longitude });
 
   const [locating, setLocating] = useState(false);
-
-  const originStopMatches = useMemo(() => searchKnownStops(originQuery), [originQuery]);
-  const destStopMatches = useMemo(() => searchKnownStops(destQuery), [destQuery]);
-  const { results: originPlaceMatches, searching: originPlaceSearching } = usePhotonSearch(originQuery);
-  const { results: destPlaceMatches, searching: destPlaceSearching } = usePhotonSearch(destQuery);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -315,41 +429,11 @@ export default function PlanRideScreen() {
       const lon = pos.coords.longitude;
       setOrigin({ lat, lon });
       setOriginLabel((await reverseGeocodeLabel(lat, lon)) ?? 'Current Location');
-      setOriginQuery('');
     } catch (e) {
       console.warn('Failed to get current location:', e);
       Alert.alert('Could not get location', 'Try again, or pick a location another way.');
     } finally {
       setLocating(false);
-    }
-  };
-
-  const pickKnownStop = (which: 'origin' | 'destination', stop: KnownStop) => {
-    if (which === 'origin') {
-      setOrigin({ lat: stop.lat, lon: stop.lng });
-      setOriginLabel(stop.name);
-      setOriginQuery('');
-      setOriginFocused(false);
-    } else {
-      setDestination({ lat: stop.lat, lon: stop.lng });
-      setDestinationLabel(stop.name);
-      setDestQuery('');
-      setDestFocused(false);
-    }
-  };
-
-  const pickPlaceResult = (which: 'origin' | 'destination', place: PhotonResult) => {
-    const label = place.sublabel ? `${place.label}, ${place.sublabel}` : place.label;
-    if (which === 'origin') {
-      setOrigin({ lat: place.lat, lon: place.lon });
-      setOriginLabel(label);
-      setOriginQuery('');
-      setOriginFocused(false);
-    } else {
-      setDestination({ lat: place.lat, lon: place.lon });
-      setDestinationLabel(label);
-      setDestQuery('');
-      setDestFocused(false);
     }
   };
 
@@ -446,10 +530,17 @@ export default function PlanRideScreen() {
   const hasTimeConstraint = !!departTime || !!arriveTime;
   const canFindRoutes = !!origin && !!destination && hasTimeConstraint;
 
+  const swapEnds = () => {
+    setOrigin(destination);
+    setOriginLabel(destinationLabel);
+    setDestination(origin);
+    setDestinationLabel(originLabel);
+  };
+
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.pageTitle, { color: c.text }]}>Plan a Ride</Text>
+        <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">Plan a Ride</Text>
 
         <View style={[styles.disclaimer, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
           <MaterialIcons name="info-outline" size={14} color={c.textSecondary} />
@@ -461,82 +552,13 @@ export default function PlanRideScreen() {
         {/* Origin */}
         <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>FROM</Text>
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-          <Text style={[styles.locationLabel, { color: c.text }]} numberOfLines={1}>
-            {originLabel ?? 'No starting point set'}
-          </Text>
-
-          <View style={[styles.searchBox, { borderColor: c.border, backgroundColor: c.surfaceAlt }]}>
-            <MaterialIcons name="search" size={18} color={c.textSecondary} />
-            <TextInput
-              style={[styles.searchInput, { color: c.text }]}
-              placeholder="Search a stop or address"
-              placeholderTextColor={c.textSecondary}
-              value={originQuery}
-              onChangeText={setOriginQuery}
-              onFocus={() => setOriginFocused(true)}
-              returnKeyType="search"
-            />
-            {originQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setOriginQuery('')} hitSlop={8}>
-                <MaterialIcons name="close" size={16} color={c.textSecondary} />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {originFocused && originQuery.trim().length > 0 && (
-            <View style={[styles.resultsList, { borderColor: c.border, backgroundColor: c.surfaceAlt }]}>
-              {originStopMatches.map(stop => (
-                <TouchableOpacity
-                  key={stop.code}
-                  style={styles.resultRow}
-                  onPress={() => pickKnownStop('origin', stop)}
-                  activeOpacity={0.6}
-                >
-                  <MaterialIcons name="directions-bus" size={16} color={c.tint} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.resultName, { color: c.text }]} numberOfLines={1}>{stop.name}</Text>
-                    <Text style={[styles.resultSub, { color: c.textSecondary }]} numberOfLines={1}>
-                      Bus stop · Route{stop.routes.length > 1 ? 's' : ''} {stop.routes.join(', ')}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-
-              {originStopMatches.length > 0 && (originPlaceMatches.length > 0 || originPlaceSearching) && (
-                <View style={[styles.resultsDivider, { backgroundColor: c.border }]} />
-              )}
-
-              {originPlaceSearching && originPlaceMatches.length === 0 && (
-                <View style={styles.resultRow}>
-                  <ActivityIndicator size="small" color={c.tint} />
-                  <Text style={[styles.resultSub, { color: c.textSecondary }]}>Searching nearby places…</Text>
-                </View>
-              )}
-
-              {originPlaceMatches.map(place => (
-                <TouchableOpacity
-                  key={place.id}
-                  style={styles.resultRow}
-                  onPress={() => pickPlaceResult('origin', place)}
-                  activeOpacity={0.6}
-                >
-                  <MaterialIcons name="place" size={16} color={c.textSecondary} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.resultName, { color: c.text }]} numberOfLines={1}>{place.label}</Text>
-                    {place.sublabel && (
-                      <Text style={[styles.resultSub, { color: c.textSecondary }]} numberOfLines={1}>{place.sublabel}</Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              ))}
-
-              {originQuery.trim().length < PHOTON_MIN_CHARS && originStopMatches.length === 0 && (
-                <View style={styles.resultRow}>
-                  <Text style={[styles.resultSub, { color: c.textSecondary }]}>Keep typing to search places…</Text>
-                </View>
-              )}
-            </View>
-          )}
+          <LocationField
+            valueLabel={originLabel}
+            emptyLabel="No starting point set"
+            searchLabel="Search for a starting point"
+            onPick={(point, label) => { setOrigin(point); setOriginLabel(label); }}
+            c={c}
+          />
 
           <View style={styles.buttonRow}>
             <TouchableOpacity
@@ -544,6 +566,9 @@ export default function PlanRideScreen() {
               onPress={useCurrentLocation}
               disabled={locating}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Use current location"
+              accessibilityState={{ disabled: locating, busy: locating }}
             >
               {locating ? <ActivityIndicator size="small" color={c.tint} /> : <MaterialIcons name="my-location" size={16} color={c.tint} />}
               <Text style={[styles.choiceBtnText, { color: c.text }]}>Current Location</Text>
@@ -552,6 +577,8 @@ export default function PlanRideScreen() {
               style={[styles.choiceBtn, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
               onPress={() => openMapPicker('origin')}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Choose starting point on map"
             >
               <MaterialIcons name="map" size={16} color={c.tint} />
               <Text style={[styles.choiceBtnText, { color: c.text }]}>Choose on Map</Text>
@@ -560,90 +587,38 @@ export default function PlanRideScreen() {
         </View>
 
         {/* Destination */}
-        <Text style={[styles.sectionLabel, { color: c.textSecondary, marginTop: 18 }]}>TO</Text>
+        <View style={styles.sectionLabelRow}>
+          <Text style={[styles.sectionLabel, { color: c.textSecondary, marginBottom: 0 }]}>TO</Text>
+          <TouchableOpacity
+            onPress={swapEnds}
+            hitSlop={8}
+            disabled={!origin && !destination}
+            activeOpacity={0.6}
+            style={styles.swapBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Swap starting point and destination"
+            accessibilityState={{ disabled: !origin && !destination }}
+          >
+            <MaterialIcons name="swap-vert" size={16} color={(origin || destination) ? c.tint : c.border} />
+            <Text style={[styles.swapBtnText, { color: (origin || destination) ? c.tint : c.border }]}>Swap</Text>
+          </TouchableOpacity>
+        </View>
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-          <Text style={[styles.locationLabel, { color: c.text }]} numberOfLines={1}>
-            {destinationLabel ?? 'No destination set'}
-          </Text>
-
-          <View style={[styles.searchBox, { borderColor: c.border, backgroundColor: c.surfaceAlt }]}>
-            <MaterialIcons name="search" size={18} color={c.textSecondary} />
-            <TextInput
-              style={[styles.searchInput, { color: c.text }]}
-              placeholder="Search a stop or address"
-              placeholderTextColor={c.textSecondary}
-              value={destQuery}
-              onChangeText={setDestQuery}
-              onFocus={() => setDestFocused(true)}
-              returnKeyType="search"
-            />
-            {destQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setDestQuery('')} hitSlop={8}>
-                <MaterialIcons name="close" size={16} color={c.textSecondary} />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {destFocused && destQuery.trim().length > 0 && (
-            <View style={[styles.resultsList, { borderColor: c.border, backgroundColor: c.surfaceAlt }]}>
-              {destStopMatches.map(stop => (
-                <TouchableOpacity
-                  key={stop.code}
-                  style={styles.resultRow}
-                  onPress={() => pickKnownStop('destination', stop)}
-                  activeOpacity={0.6}
-                >
-                  <MaterialIcons name="directions-bus" size={16} color={c.tint} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.resultName, { color: c.text }]} numberOfLines={1}>{stop.name}</Text>
-                    <Text style={[styles.resultSub, { color: c.textSecondary }]} numberOfLines={1}>
-                      Bus stop · Route{stop.routes.length > 1 ? 's' : ''} {stop.routes.join(', ')}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-
-              {destStopMatches.length > 0 && (destPlaceMatches.length > 0 || destPlaceSearching) && (
-                <View style={[styles.resultsDivider, { backgroundColor: c.border }]} />
-              )}
-
-              {destPlaceSearching && destPlaceMatches.length === 0 && (
-                <View style={styles.resultRow}>
-                  <ActivityIndicator size="small" color={c.tint} />
-                  <Text style={[styles.resultSub, { color: c.textSecondary }]}>Searching nearby places…</Text>
-                </View>
-              )}
-
-              {destPlaceMatches.map(place => (
-                <TouchableOpacity
-                  key={place.id}
-                  style={styles.resultRow}
-                  onPress={() => pickPlaceResult('destination', place)}
-                  activeOpacity={0.6}
-                >
-                  <MaterialIcons name="place" size={16} color={c.textSecondary} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.resultName, { color: c.text }]} numberOfLines={1}>{place.label}</Text>
-                    {place.sublabel && (
-                      <Text style={[styles.resultSub, { color: c.textSecondary }]} numberOfLines={1}>{place.sublabel}</Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              ))}
-
-              {destQuery.trim().length < PHOTON_MIN_CHARS && destStopMatches.length === 0 && (
-                <View style={styles.resultRow}>
-                  <Text style={[styles.resultSub, { color: c.textSecondary }]}>Keep typing to search places…</Text>
-                </View>
-              )}
-            </View>
-          )}
+          <LocationField
+            valueLabel={destinationLabel}
+            emptyLabel="No destination set"
+            searchLabel="Search for a destination"
+            onPick={(point, label) => { setDestination(point); setDestinationLabel(label); }}
+            c={c}
+          />
 
           <View style={styles.buttonRow}>
             <TouchableOpacity
               style={[styles.choiceBtn, { backgroundColor: c.surfaceAlt, borderColor: c.border, flex: 1 }]}
               onPress={() => openMapPicker('destination')}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Choose destination on map"
             >
               <MaterialIcons name="map" size={16} color={c.tint} />
               <Text style={[styles.choiceBtnText, { color: c.text }]}>Choose on Map</Text>
@@ -657,6 +632,9 @@ export default function PlanRideScreen() {
           style={[styles.dateRow, { backgroundColor: c.surface, borderColor: c.border }]}
           onPress={openDatePicker}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`Travel date, currently ${selectedDate.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`}
+          accessibilityHint="Opens the date picker"
         >
           <MaterialIcons name="calendar-today" size={18} color={c.tint} />
           <Text style={[styles.dateRowText, { color: c.text }]}>{formatDateLabel(selectedDate)}</Text>
@@ -679,6 +657,9 @@ export default function PlanRideScreen() {
                 style={[styles.timeChip, { borderColor: c.border, backgroundColor: c.surfaceAlt }]}
                 onPress={() => openTimePicker('depart')}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Leave after, currently ${departTime ? formatTimeLabel(departTime) : 'anytime'}`}
+                accessibilityHint="Opens the time picker"
               >
                 <MaterialIcons name="schedule" size={15} color={departTime ? c.tint : c.textSecondary} />
                 <Text style={[styles.timeChipText, { color: departTime ? c.text : c.textSecondary }]}>
@@ -686,7 +667,13 @@ export default function PlanRideScreen() {
                 </Text>
               </TouchableOpacity>
               {departTime && (
-                <TouchableOpacity onPress={() => setDepartTime(null)} hitSlop={8} style={styles.clearTimeBtn}>
+                <TouchableOpacity
+                  onPress={() => setDepartTime(null)}
+                  hitSlop={8}
+                  style={styles.clearTimeBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear leave-after time"
+                >
                   <MaterialIcons name="close" size={16} color={c.textSecondary} />
                 </TouchableOpacity>
               )}
@@ -700,6 +687,9 @@ export default function PlanRideScreen() {
                 style={[styles.timeChip, { borderColor: c.border, backgroundColor: c.surfaceAlt }]}
                 onPress={() => openTimePicker('arrive')}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Arrive by, currently ${arriveTime ? formatTimeLabel(arriveTime) : 'no deadline'}`}
+                accessibilityHint="Opens the time picker"
               >
                 <MaterialIcons name="schedule" size={15} color={arriveTime ? c.tint : c.textSecondary} />
                 <Text style={[styles.timeChipText, { color: arriveTime ? c.text : c.textSecondary }]}>
@@ -707,7 +697,13 @@ export default function PlanRideScreen() {
                 </Text>
               </TouchableOpacity>
               {arriveTime && (
-                <TouchableOpacity onPress={() => setArriveTime(null)} hitSlop={8} style={styles.clearTimeBtn}>
+                <TouchableOpacity
+                  onPress={() => setArriveTime(null)}
+                  hitSlop={8}
+                  style={styles.clearTimeBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear arrive-by time"
+                >
                   <MaterialIcons name="close" size={16} color={c.textSecondary} />
                 </TouchableOpacity>
               )}
@@ -720,6 +716,9 @@ export default function PlanRideScreen() {
           onPress={findRoutes}
           disabled={!canFindRoutes || loading}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Find routes"
+          accessibilityState={{ disabled: !canFindRoutes || loading, busy: loading }}
         >
           {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.findBtnText}>Find Routes</Text>}
         </TouchableOpacity>
@@ -760,6 +759,8 @@ export default function PlanRideScreen() {
                     style={[styles.startBtn, { backgroundColor: c.tint }]}
                     onPress={() => setRoutePreviewItin(itin)}
                     activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View route on map, ${itin.totalMinutes} minute trip, ${formatClock(itin.departTime)} to ${formatClock(itin.arriveTime)}`}
                   >
                     <MaterialIcons name="open-in-full" size={15} color="#fff" />
                     <Text style={styles.startBtnText}>View Route</Text>
@@ -783,7 +784,7 @@ export default function PlanRideScreen() {
       >
         <SafeAreaView style={[styles.pickerRoot, { backgroundColor: c.background }]}>
           <View style={styles.pickerHeader}>
-            <Text style={[styles.pickerTitle, { color: c.text }]}>Route preview</Text>
+            <Text style={[styles.pickerTitle, { color: c.text }]} accessibilityRole="header">Route preview</Text>
             {routePreviewItin && (
               <Text style={[styles.previewSubtitle, { color: c.textSecondary }]}>
                 {formatClock(routePreviewItin.departTime)} → {formatClock(routePreviewItin.arriveTime)} · {routePreviewItin.totalMinutes} min
@@ -853,6 +854,8 @@ export default function PlanRideScreen() {
               style={[styles.pickerConfirmBtn, { backgroundColor: c.tint, flex: 1 }]}
               onPress={() => setRoutePreviewItin(null)}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Done, close route preview"
             >
               <Text style={styles.pickerConfirmText}>Done</Text>
             </TouchableOpacity>
@@ -876,10 +879,20 @@ export default function PlanRideScreen() {
             <Marker coordinate={{ latitude: pickerPoint.lat, longitude: pickerPoint.lon }} />
           </MapView>
           <View style={[styles.pickerFooter, { backgroundColor: c.surface }]}>
-            <TouchableOpacity style={styles.pickerCancelBtn} onPress={() => setPickerFor(null)} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.pickerCancelBtn}
+              onPress={() => setPickerFor(null)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+            >
               <Text style={{ color: c.textSecondary, fontSize: 15, fontWeight: '600' }}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.pickerConfirmBtn, { backgroundColor: c.tint }]} onPress={confirmMapPicker} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={[styles.pickerConfirmBtn, { backgroundColor: c.tint }]}
+              onPress={confirmMapPicker}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+            >
               <Text style={styles.pickerConfirmText}>Confirm Location</Text>
             </TouchableOpacity>
           </View>
@@ -892,11 +905,11 @@ export default function PlanRideScreen() {
           <View style={styles.sheetBackdrop}>
             <View style={[styles.sheet, { backgroundColor: c.surface }]}>
               <View style={styles.sheetHeader}>
-                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                <TouchableOpacity onPress={() => setShowDatePicker(false)} accessibilityRole="button" hitSlop={8}>
                   <Text style={[styles.sheetCancel, { color: c.textSecondary }]}>Cancel</Text>
                 </TouchableOpacity>
-                <Text style={[styles.sheetTitle, { color: c.text }]}>Choose a date</Text>
-                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                <Text style={[styles.sheetTitle, { color: c.text }]} accessibilityRole="header">Choose a date</Text>
+                <TouchableOpacity onPress={() => setShowDatePicker(false)} accessibilityRole="button" hitSlop={8}>
                   <Text style={[styles.sheetDone, { color: c.tint }]}>Done</Text>
                 </TouchableOpacity>
               </View>
@@ -920,13 +933,15 @@ export default function PlanRideScreen() {
           <View style={styles.sheetBackdrop}>
             <View style={[styles.sheet, { backgroundColor: c.surface }]}>
               <View style={styles.sheetHeader}>
-                <TouchableOpacity onPress={() => setShowIOSTimeSheet(false)}>
+                <TouchableOpacity onPress={() => setShowIOSTimeSheet(false)} accessibilityRole="button" hitSlop={8}>
                   <Text style={[styles.sheetCancel, { color: c.textSecondary }]}>Cancel</Text>
                 </TouchableOpacity>
-                <Text style={[styles.sheetTitle, { color: c.text }]}>
+                <Text style={[styles.sheetTitle, { color: c.text }]} accessibilityRole="header">
                   {activeTimeField === 'depart' ? 'Leave after' : 'Arrive by'}
                 </Text>
                 <TouchableOpacity
+                  accessibilityRole="button"
+                  hitSlop={8}
                   onPress={() => {
                     const value = (activeTimeField === 'depart' ? departTime : arriveTime) ?? new Date();
                     if (activeTimeField === 'depart') setDepartTime(value);
@@ -972,6 +987,16 @@ const styles = StyleSheet.create({
   disclaimerText: { flex: 1, fontSize: 11, lineHeight: 15 },
 
   sectionLabel: { fontSize: 12, fontWeight: '600', letterSpacing: 0.8, marginBottom: 8, marginLeft: 4 },
+  sectionLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 18,
+    marginBottom: 8,
+    marginRight: 4,
+  },
+  swapBtn: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  swapBtnText: { fontSize: 12, fontWeight: '600' },
   card: { borderRadius: 14, borderWidth: 1, padding: 14 },
   locationLabel: { fontSize: 15, fontWeight: '600', marginBottom: 10 },
 

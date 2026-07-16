@@ -1,8 +1,8 @@
-import { router } from 'expo-router';
 import React from 'react';
 import { ScrollView, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScreenHeader } from '@/components/screen-header';
 import { useFavorites } from '@/context/favorites-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
@@ -16,12 +16,7 @@ export default function FavoritesScreen() {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.6}>
-          <Text style={[styles.backArrow, { color: c.tint }]}>‹</Text>
-        </TouchableOpacity>
-        <Text style={[styles.pageTitle, { color: c.text }]}>Favorite Routes</Text>
-      </View>
+      <ScreenHeader title="Favorite Routes" bottomMargin={8} />
       <Text style={[styles.hint, { color: c.textSecondary }]}>
         Favorited routes appear at the top of the route picker on the map.
       </Text>
@@ -40,6 +35,10 @@ export default function FavoritesScreen() {
                 ]}
                 onPress={() => toggleFavorite(route)}
                 activeOpacity={0.6}
+                accessibilityRole="checkbox"
+                accessibilityLabel={`${info?.name ?? `Route ${route}`}, route ${route}`}
+                accessibilityHint={fav ? 'Removes this route from favorites' : 'Adds this route to favorites'}
+                accessibilityState={{ checked: fav }}
               >
                 <View style={[styles.routeTag, { backgroundColor: info?.color ?? c.tint }]}>
                   <Text style={styles.routeTagText}>{route}</Text>
@@ -61,10 +60,6 @@ export default function FavoritesScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, paddingHorizontal: 20 },
-  header: { flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 8 },
-  backBtn: { paddingRight: 10, paddingVertical: 4 },
-  backArrow: { fontSize: 30, fontWeight: '300' },
-  pageTitle: { fontSize: 28, fontWeight: '700' },
   hint: { fontSize: 13, marginBottom: 16 },
   scrollContent: { paddingBottom: 24 },
   card: { borderRadius: 14, borderWidth: 1, overflow: 'hidden' },

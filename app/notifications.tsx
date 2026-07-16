@@ -1,10 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { router } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScreenHeader } from '@/components/screen-header';
 import { ALL_ROUTES } from '@/constants/routes';
 import { Colors } from '@/constants/theme';
 import { useFavorites } from '@/context/favorites-context';
@@ -12,6 +12,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { API_BASE } from '@/lib/api-base';
 import {
   AlertPrefs,
+  NOTIFICATIONS_ENABLED_KEY,
   RouteAlertConfig,
   defaultRouteAlertConfig,
   registerPushTokenWithServer,
@@ -19,10 +20,10 @@ import {
   sendLocalTestNotification,
 } from '@/lib/notifications';
 
-const ENABLED_KEY = 'notifications-enabled';
 const PREFS_KEY = 'alert-prefs-v2';
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; // index = server weekday (Mon=0)
+const DAY_FULL_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const EMPTY_PREFS: AlertPrefs = { routeConfigs: [] };
 
@@ -31,8 +32,8 @@ const EMPTY_PREFS: AlertPrefs = { routeConfigs: [] };
 // draft text so a mid-typing value like "8:" doesn't get validated away
 // before the user's finished, only reformatting/committing on blur.
 function TimeField({
-  value, onChange, c,
-}: { value: string; onChange: (v: string) => void; c: any }) {
+  value, onChange, c, accessibilityLabel,
+}: { value: string; onChange: (v: string) => void; c: any; accessibilityLabel: string }) {
   const [text, setText] = useState(value);
   useEffect(() => { setText(value); }, [value]);
 
@@ -58,6 +59,8 @@ function TimeField({
       placeholderTextColor={c.textSecondary}
       keyboardType="numbers-and-punctuation"
       maxLength={5}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint="Enter a time as hours and minutes, like 08:00"
       style={[styles.timeInput, { color: c.text, backgroundColor: c.surfaceAlt, borderColor: c.border }]}
     />
   );
@@ -78,7 +81,7 @@ export default function NotificationsScreen() {
   useEffect(() => {
     (async () => {
       const [enabledRaw, prefsRaw] = await Promise.all([
-        AsyncStorage.getItem(ENABLED_KEY),
+        AsyncStorage.getItem(NOTIFICATIONS_ENABLED_KEY),
         AsyncStorage.getItem(PREFS_KEY),
       ]);
       if (prefsRaw) {
@@ -118,10 +121,10 @@ export default function NotificationsScreen() {
         const token = await registerPushTokenWithServer(API_BASE, prefs);
         setPushAvailable(!!token);
         setEnabled(true);
-        await AsyncStorage.setItem(ENABLED_KEY, 'true');
+        await AsyncStorage.setItem(NOTIFICATIONS_ENABLED_KEY, 'true');
       } else {
         setEnabled(false);
-        await AsyncStorage.setItem(ENABLED_KEY, 'false');
+        await AsyncStorage.setItem(NOTIFICATIONS_ENABLED_KEY, 'false');
       }
     } finally {
       setBusy(false);
@@ -210,12 +213,7 @@ export default function NotificationsScreen() {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.6}>
-          <Text style={[styles.backArrow, { color: c.tint }]}>‹</Text>
-        </TouchableOpacity>
-        <Text style={[styles.pageTitle, { color: c.text }]}>Notifications</Text>
-      </View>
+      <ScreenHeader title="Notifications" />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
@@ -226,7 +224,13 @@ export default function NotificationsScreen() {
                 Required before any alerts (delays, detours, service news) can reach this device.
               </Text>
             </View>
-            <Switch value={enabled} onValueChange={onToggle} disabled={busy} />
+            <Switch
+              value={enabled}
+              onValueChange={onToggle}
+              disabled={busy}
+              accessibilityLabel="Enable notifications"
+              accessibilityHint="Required before any alerts can reach this device"
+            />
           </View>
         </View>
 
@@ -234,7 +238,7 @@ export default function NotificationsScreen() {
           <View style={[styles.noteCard, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
             <MaterialIcons name="info-outline" size={14} color={c.textSecondary} />
             <Text style={[styles.noteText, { color: c.textSecondary }]}>
-              Remote push isn't set up yet for this app build (needs an EAS project ID — see
+              Remote push isn’t set up yet for this app build (needs an EAS project ID — see
               lib/notifications.ts). Local notifications, like the test below, still work fine.
             </Text>
           </View>
@@ -242,10 +246,10 @@ export default function NotificationsScreen() {
 
         {enabled && (
           <>
-            <Text style={[styles.sectionTitle, { color: c.text }]}>My Routes</Text>
+            <Text style={[styles.sectionTitle, { color: c.text }]} accessibilityRole="header">My Routes</Text>
             <Text style={[styles.sectionDesc, { color: c.textSecondary }]}>
               Add a route to set up its alerts. Detours always come right away for
-              any added route; delay alerts follow that route's own threshold and schedule below.
+              any added route; delay alerts follow that route’s own threshold and schedule below.
             </Text>
 
             {prefs.routeConfigs.length === 0 && (
@@ -259,10 +263,23 @@ export default function NotificationsScreen() {
               const hasSchedule = rc.schedule.length > 0;
               return (
                 <View key={rc.route} style={[styles.routeCard, { backgroundColor: c.surface, borderColor: c.border }]}>
-                  <TouchableOpacity style={styles.routeCardHeader} onPress={() => toggleExpanded(rc.route)} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    style={styles.routeCardHeader}
+                    onPress={() => toggleExpanded(rc.route)}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Route ${rc.route} alert settings`}
+                    accessibilityState={{ expanded: isOpen }}
+                  >
                     <Text style={[styles.routeCardTitle, { color: c.text }]}>Route {rc.route}</Text>
                     <View style={styles.routeCardHeaderRight}>
-                      <TouchableOpacity onPress={() => removeRoute(rc.route)} hitSlop={8} style={{ marginRight: 12 }}>
+                      <TouchableOpacity
+                        onPress={() => removeRoute(rc.route)}
+                        hitSlop={8}
+                        style={{ marginRight: 12 }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove route ${rc.route}`}
+                      >
                         <MaterialIcons name="close" size={18} color={c.textSecondary} />
                       </TouchableOpacity>
                       <MaterialIcons name={isOpen ? 'expand-less' : 'expand-more'} size={22} color={c.textSecondary} />
@@ -282,6 +299,8 @@ export default function NotificationsScreen() {
                           }}
                           keyboardType="number-pad"
                           maxLength={3}
+                          accessibilityLabel="Delay threshold in minutes"
+                          accessibilityHint="Notifies you when the route is running at least this many minutes late"
                           style={[styles.delayInput, { color: c.text, backgroundColor: c.surfaceAlt, borderColor: c.border }]}
                         />
                         <Text style={[styles.delayLabel, { color: c.text }]}>minutes late</Text>
@@ -295,12 +314,18 @@ export default function NotificationsScreen() {
                         <TouchableOpacity
                           style={[styles.segmentBtn, !hasSchedule && { backgroundColor: c.tint }]}
                           onPress={() => setScheduleMode(rc.route, 'always')}
+                          accessibilityRole="button"
+                          accessibilityLabel="Always"
+                          accessibilityState={{ selected: !hasSchedule }}
                         >
                           <Text style={[styles.segmentText, { color: !hasSchedule ? '#fff' : c.textSecondary }]}>Always</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[styles.segmentBtn, hasSchedule && { backgroundColor: c.tint }]}
                           onPress={() => setScheduleMode(rc.route, 'custom')}
+                          accessibilityRole="button"
+                          accessibilityLabel="Specific times"
+                          accessibilityState={{ selected: hasSchedule }}
                         >
                           <Text style={[styles.segmentText, { color: hasSchedule ? '#fff' : c.textSecondary }]}>Specific times</Text>
                         </TouchableOpacity>
@@ -310,7 +335,12 @@ export default function NotificationsScreen() {
                         <View key={idx} style={[styles.windowCard, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
                           <View style={styles.windowHeader}>
                             <Text style={[styles.windowTitle, { color: c.text }]}>Window {idx + 1}</Text>
-                            <TouchableOpacity onPress={() => removeWindow(rc.route, idx)} hitSlop={8}>
+                            <TouchableOpacity
+                              onPress={() => removeWindow(rc.route, idx)}
+                              hitSlop={8}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Delete window ${idx + 1}`}
+                            >
                               <MaterialIcons name="delete-outline" size={18} color={c.textSecondary} />
                             </TouchableOpacity>
                           </View>
@@ -322,6 +352,9 @@ export default function NotificationsScreen() {
                                   key={label}
                                   style={[styles.dayChip, { backgroundColor: on ? c.tint : c.surface }]}
                                   onPress={() => toggleWindowDay(rc.route, idx, day)}
+                                  accessibilityRole="checkbox"
+                                  accessibilityLabel={DAY_FULL_NAMES[day]}
+                                  accessibilityState={{ checked: on }}
                                 >
                                   <Text style={[styles.dayChipText, { color: on ? '#fff' : c.textSecondary }]}>{label}</Text>
                                 </TouchableOpacity>
@@ -330,15 +363,30 @@ export default function NotificationsScreen() {
                           </View>
                           <View style={styles.timeRow}>
                             <Text style={[styles.timeLabel, { color: c.textSecondary }]}>From</Text>
-                            <TimeField value={w.start} onChange={t => updateWindow(rc.route, idx, { start: t })} c={c} />
+                            <TimeField
+                              value={w.start}
+                              onChange={t => updateWindow(rc.route, idx, { start: t })}
+                              c={c}
+                              accessibilityLabel={`Window ${idx + 1} start time`}
+                            />
                             <Text style={[styles.timeLabel, { color: c.textSecondary }]}>To</Text>
-                            <TimeField value={w.end} onChange={t => updateWindow(rc.route, idx, { end: t })} c={c} />
+                            <TimeField
+                              value={w.end}
+                              onChange={t => updateWindow(rc.route, idx, { end: t })}
+                              c={c}
+                              accessibilityLabel={`Window ${idx + 1} end time`}
+                            />
                           </View>
                         </View>
                       ))}
 
                       {hasSchedule && (
-                        <TouchableOpacity style={[styles.inlineBtn, { borderColor: c.border }]} onPress={() => addWindow(rc.route)}>
+                        <TouchableOpacity
+                          style={[styles.inlineBtn, { borderColor: c.border }]}
+                          onPress={() => addWindow(rc.route)}
+                          accessibilityRole="button"
+                          accessibilityLabel="Add another window"
+                        >
                           <MaterialIcons name="add" size={16} color={c.tint} />
                           <Text style={[styles.inlineBtnText, { color: c.tint }]}>Add another window</Text>
                         </TouchableOpacity>
@@ -353,6 +401,7 @@ export default function NotificationsScreen() {
                         <Switch
                           value={rc.notifyReroutes}
                           onValueChange={v => updateRoute(rc.route, { notifyReroutes: v })}
+                          accessibilityLabel={`Notify me about reroutes on route ${rc.route}`}
                         />
                       </View>
                     </View>
@@ -370,6 +419,8 @@ export default function NotificationsScreen() {
                       key={route}
                       style={[styles.routeChip, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
                       onPress={() => addRoute(route)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Add route ${route}${favorites.includes(route) ? ', favorite' : ''}`}
                     >
                       {favorites.includes(route) && <Text style={{ fontSize: 11 }}>★ </Text>}
                       <Text style={[styles.routeChipText, { color: c.text }]}>{route}</Text>
@@ -380,19 +431,6 @@ export default function NotificationsScreen() {
             )}
           </>
         )}
-
-        <TouchableOpacity
-          style={[styles.testBtn, { backgroundColor: c.tint }]}
-          onPress={sendTest}
-          activeOpacity={0.8}
-        >
-          <MaterialIcons name="notifications-active" size={16} color="#fff" />
-          <Text style={styles.testBtnText}>Send Test Notification</Text>
-        </TouchableOpacity>
-        <Text style={[styles.testHint, { color: c.textSecondary }]}>
-          Fires immediately on this device only — doesn't touch the server, so it works
-          even without remote push configured.
-        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -400,10 +438,6 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, paddingHorizontal: 20 },
-  header: { flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 20 },
-  backBtn: { paddingRight: 10, paddingVertical: 4 },
-  backArrow: { fontSize: 30, fontWeight: '300' },
-  pageTitle: { fontSize: 28, fontWeight: '700' },
 
   card: { borderRadius: 14, borderWidth: 1, padding: 4 },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 12, gap: 12 },

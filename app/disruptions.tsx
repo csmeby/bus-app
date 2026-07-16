@@ -1,5 +1,5 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Linking,
@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScreenHeader } from '@/components/screen-header';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { API_BASE } from '@/lib/api-base';
@@ -67,12 +68,7 @@ export default function DisruptionsScreen() {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.6}>
-          <Text style={[styles.backArrow, { color: c.tint }]}>‹</Text>
-        </TouchableOpacity>
-        <Text style={[styles.pageTitle, { color: c.text }]}>Service Disruptions</Text>
-      </View>
+      <ScreenHeader title="Service Disruptions" bottomMargin={16} />
 
       <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {news.length === 0 ? (
@@ -91,6 +87,9 @@ export default function DisruptionsScreen() {
                 ]}
                 onPress={() => openPost(item.postUrl)}
                 activeOpacity={0.7}
+                accessibilityRole="link"
+                accessibilityLabel={`${item.title}. Affects ${item.affectsAllRoutes ? 'all routes' : `route${item.routes.length > 1 ? 's' : ''} ${item.routes.join(', ')}`}. ${item.summary}`}
+                accessibilityHint="Opens the full post in your browser"
               >
                 <View style={styles.newsCardHeader}>
                   <MaterialIcons name="warning-amber" size={16} color="#EF4444" />
@@ -122,10 +121,6 @@ export default function DisruptionsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, paddingHorizontal: 20 },
-  header: { flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 16 },
-  backBtn: { paddingRight: 10, paddingVertical: 4 },
-  backArrow: { fontSize: 30, fontWeight: '300' },
-  pageTitle: { fontSize: 28, fontWeight: '700' },
   scrollContent: { paddingBottom: 24 },
   emptyText: { fontSize: 14, textAlign: 'center', marginTop: 40 },
 

@@ -3,6 +3,11 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+// Shared with app/_layout.tsx (silent re-registration on launch) and
+// app/notifications.tsx (the settings toggle) so both read/write the same
+// AsyncStorage key.
+export const NOTIFICATIONS_ENABLED_KEY = 'notifications-enabled';
+
 // Foreground display behavior — without this, a notification that arrives
 // while the app is open won't show anything.
 Notifications.setNotificationHandler({

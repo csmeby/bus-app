@@ -26,6 +26,7 @@ const LEGEND_ITEMS = [
 ];
 
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const WEEKDAY_FULL_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 // Local calendar date, not toISOString() (UTC) — avoids the day-shift bug
 // that broke multi-day schedule lookups on the main map screen.
@@ -126,23 +127,41 @@ export default function CalendarScreen() {
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.pageTitle, { color: c.text }]}>Calendar</Text>
+        <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">Calendar</Text>
 
         <View style={styles.monthHeader}>
-          <TouchableOpacity onPress={goToPrevMonth} style={styles.navBtn} activeOpacity={0.6}>
+          <TouchableOpacity
+            onPress={goToPrevMonth}
+            style={styles.navBtn}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel="Previous month"
+          >
             <Text style={[styles.navArrow, { color: c.tint }]}>‹</Text>
           </TouchableOpacity>
-          <Text style={[styles.monthTitle, { color: c.text }]}>
+          <Text style={[styles.monthTitle, { color: c.text }]} accessibilityRole="header">
             {viewDate.toLocaleDateString([], { month: 'long', year: 'numeric' })}
           </Text>
-          <TouchableOpacity onPress={goToNextMonth} style={styles.navBtn} activeOpacity={0.6}>
+          <TouchableOpacity
+            onPress={goToNextMonth}
+            style={styles.navBtn}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel="Next month"
+          >
             <Text style={[styles.navArrow, { color: c.tint }]}>›</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.weekDaysRow}>
           {WEEKDAY_LABELS.map((wd, i) => (
-            <Text key={i} style={[styles.weekDayLabel, { color: c.textSecondary }]}>{wd}</Text>
+            <Text
+              key={i}
+              style={[styles.weekDayLabel, { color: c.textSecondary }]}
+              accessibilityLabel={WEEKDAY_FULL_NAMES[i]}
+            >
+              {wd}
+            </Text>
           ))}
         </View>
 
@@ -153,6 +172,7 @@ export default function CalendarScreen() {
             {gridCells.map(cell => {
               const info = days[cell.dateStr];
               const isToday = cell.dateStr === todayStr;
+              const dateLabel = cell.date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
               return (
                 <TouchableOpacity
                   key={cell.dateStr}
@@ -160,6 +180,10 @@ export default function CalendarScreen() {
                   style={styles.dayCellOuter}
                   onPress={() => setSelectedDay(cell.dateStr)}
                   activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${dateLabel}${isToday ? ', today' : ''}${info ? `, ${info.primaryLabel}` : ''}`}
+                  accessibilityHint={info ? 'Shows this day’s transit schedule changes' : undefined}
+                  accessibilityState={{ disabled: !info }}
                 >
                   {info?.secondaryColor ? (
                     <LinearGradient
@@ -210,9 +234,15 @@ export default function CalendarScreen() {
       </ScrollView>
 
       <Modal visible={!!selectedDay} transparent animationType="fade" onRequestClose={() => setSelectedDay(null)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setSelectedDay(null)} />
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setSelectedDay(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss"
+        />
         <View style={[styles.dayModalCard, { backgroundColor: c.surface }]}>
-          <Text style={[styles.dayModalDate, { color: c.text }]}>
+          <Text style={[styles.dayModalDate, { color: c.text }]} accessibilityRole="header">
             {selectedDay &&
               parseLocalDate(selectedDay).toLocaleDateString([], {
                 weekday: 'long',
@@ -240,7 +270,11 @@ export default function CalendarScreen() {
               </Text>
             )}
           </ScrollView>
-          <TouchableOpacity onPress={() => setSelectedDay(null)} style={[styles.closeModalBtn, { backgroundColor: c.tint }]}>
+          <TouchableOpacity
+            onPress={() => setSelectedDay(null)}
+            style={[styles.closeModalBtn, { backgroundColor: c.tint }]}
+            accessibilityRole="button"
+          >
             <Text style={styles.closeModalBtnText}>Close</Text>
           </TouchableOpacity>
         </View>

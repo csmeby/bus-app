@@ -1,8 +1,8 @@
-import { router } from 'expo-router';
 import React from 'react';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScreenHeader } from '@/components/screen-header';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -42,7 +42,7 @@ const RIDING_TIPS = [
     title: 'Not Every Stop Is Automatic',
     body:
       "If no one's waiting at the stop, the bus isn't stopping.\n\n" +
-      'Drivers aren\'t required to stop at any stop unless they\'re running ahead of schedule (at a timepoint), have passengers to drop off, or you requested it.',
+      'Drivers aren\'t required to stop at any stop unless they\'re running ahead of schedule (at a timepoint), have passengers to pick up, or you requested it.',
   },
   {
     key: 'plan-ahead',
@@ -53,7 +53,7 @@ const RIDING_TIPS = [
   },
   {
     key: 'full-bus',
-    title: 'Full Bus',
+    title: 'Full Bus / "Another Bus Follows"',
     body:
       "Backpacks off, move back, make two rows. The busses can fit about 70 people. If a bus has to leave you behind, there's always another one behind it.\n\n" +
       '"Another Bus Follows" on the marquee means the bus is full and will only stop to let people off. You will have to catch the next one.',
@@ -90,16 +90,10 @@ export default function HelpScreen() {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.6}>
-          <Text style={[styles.backArrow, { color: c.tint }]}>‹</Text>
-        </TouchableOpacity>
-        <Text style={[styles.pageTitle, { color: c.text }]}>Help Guide</Text>
-      </View>
+      <ScreenHeader title="Help Guide" />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        
-        <Text style={[styles.sectionLabel, { color: c.textSecondary, marginTop: 28 }]}>STOP TYPES</Text>
+        <Text style={[styles.sectionLabel, { color: c.textSecondary, marginTop: 28 }]} accessibilityRole="header">STOP TYPES</Text>
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
           {STOP_TYPES.map((item, i) => (
             <View
@@ -109,7 +103,12 @@ export default function HelpScreen() {
                 i < STOP_TYPES.length - 1 && [styles.rowBorder, { borderBottomColor: c.border }],
               ]}
             >
-              <Image source={item.image} style={[styles.stopImage, { width: item.imageSize, height: item.imageSize }]} />
+              <Image
+                source={item.image}
+                style={[styles.stopImage, { width: item.imageSize, height: item.imageSize }]}
+                accessible={false}
+                importantForAccessibility="no"
+              />
               <View style={styles.stopTextWrap}>
                 <Text style={[styles.stopTitle, { color: c.text }]}>{item.title}</Text>
                 <Text style={[styles.stopText, { color: c.textSecondary }]}>{item.text}</Text>
@@ -118,7 +117,7 @@ export default function HelpScreen() {
           ))}
         </View>
 
-        <Text style={[styles.sectionLabel, { color: c.textSecondary, marginTop: 10 }]}>HOW TO RIDE</Text>
+        <Text style={[styles.sectionLabel, { color: c.textSecondary, marginTop: 10 }]} accessibilityRole="header">HOW TO RIDE</Text>
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
           {RIDING_TIPS.map((item, i) => (
             <View
@@ -146,10 +145,6 @@ export default function HelpScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, paddingHorizontal: 20 },
-  header: { flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 20 },
-  backBtn: { paddingRight: 10, paddingVertical: 4 },
-  backArrow: { fontSize: 30, fontWeight: '300' },
-  pageTitle: { fontSize: 28, fontWeight: '700' },
   scrollContent: { paddingBottom: 24 },
 
   sectionLabel: {

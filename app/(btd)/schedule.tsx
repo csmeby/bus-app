@@ -1,11 +1,19 @@
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { LayoutAnimation, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, UIManager, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BTD_TINT } from '@/constants/btd-theme';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import btdRoutesRaw from '../../btd_routes.json';
+
+// LayoutAnimation is a no-op on Android unless explicitly enabled. Harmless
+// under the new architecture (where it's on by default and this setter is
+// deprecated-but-safe), still required on the old one.
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 type BtdStopEntry = { key: string; label: string; number: number; times: string[] };
 type BtdRoute = { name: string; color: string; terminal: string; description: string | null; stops: BtdStopEntry[] };
@@ -19,6 +27,13 @@ const ALL_BTD_ROUTES = Object.keys(btdRoutes).sort();
 function minutesAfterHour(times: string[]): string {
   const minutes = Array.from(new Set(times.map(t => t.split(':')[1]))).sort((a, b) => Number(a) - Number(b));
   return minutes.map(m => `:${m}`).join(', ');
+}
+
+function prettyTerminal(terminal: string): string {
+  return terminal
+    .split('_')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 }
 
 // Route 04 (Yellow) isn't a loop like the others — it's a single corridor
@@ -78,71 +93,89 @@ export default function BtdScheduleScreen() {
   const tint = BTD_TINT[scheme];
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
-  const toggle = (routeNum: string) => setExpanded(prev => ({ ...prev, [routeNum]: !prev[routeNum] }));
+  const toggle = (routeNum: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpanded(prev => ({ ...prev, [routeNum]: !prev[routeNum] }));
+  };
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
       <View style={styles.header}>
-        <Text style={[styles.pageTitle, { color: c.text }]}>Schedule</Text>
+        <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">Schedule</Text>
         <Text style={[styles.pageSubtitle, { color: c.textSecondary }]}>
           Time points repeat every hour, on the same minutes, all day.
         </Text>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.section}>
-          <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>DAYS & HOURS OF OPERATION</Text>
-          <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-            <View style={styles.plainRow}>
-              <Text style={[styles.hoursLabel, { color: c.text }]}>Monday – Friday, 5:00 AM – 7:00 PM</Text>
-              <Text style={[styles.hoursSub, { color: c.textSecondary }]}>Excluding holidays. No weekend service.</Text>
-            </View>
+        <View style={[styles.hoursCard, { backgroundColor: tint + '14', borderColor: tint + '33' }]}>
+          <MaterialIcons name="schedule" size={18} color={tint} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.hoursLabel, { color: c.text }]}>Monday - Friday, 5:00 AM - 7:00 PM</Text>
+            <Text style={[styles.hoursSub, { color: c.textSecondary }]}>Excluding holidays. No weekend service.</Text>
           </View>
         </View>
 
+        <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>ROUTES</Text>
         {ALL_BTD_ROUTES.map(routeNum => {
           const route = btdRoutes[routeNum];
           const isOpen = !!expanded[routeNum];
           return (
-            <View key={routeNum} style={styles.section}>
-              <TouchableOpacity style={styles.routeHeaderRow} onPress={() => toggle(routeNum)} activeOpacity={0.6}>
+            <View
+              key={routeNum}
+              style={[styles.routeCard, { backgroundColor: c.surface, borderColor: c.border }]}
+            >
+              {/* Colored accent strip keyed to the route's brand color — BTD
+                  routes are named by color, so this is their primary identity. */}
+              <View style={[styles.routeAccent, { backgroundColor: route.color }]} />
+              <TouchableOpacity
+                style={styles.routeHeaderRow}
+                onPress={() => toggle(routeNum)}
+                activeOpacity={0.6}
+                accessibilityRole="button"
+                accessibilityLabel={`${route.name} route, via ${prettyTerminal(route.terminal)}, ${route.stops.length} time points`}
+                accessibilityState={{ expanded: isOpen }}
+              >
                 <View style={[styles.routeTag, { backgroundColor: route.color }]}>
                   <Text style={styles.routeTagText}>{routeNum}</Text>
                 </View>
-                <Text style={[styles.routeName, { color: c.text }]}>{route.name} Route</Text>
-                <Text style={[styles.disclosureArrow, { color: c.textSecondary }]}>{isOpen ? '▾' : '▸'}</Text>
+                <View style={styles.routeNameWrap}>
+                  <Text style={[styles.routeName, { color: c.text }]}>{route.name} Route</Text>
+                  <Text style={[styles.routeTerminal, { color: c.textSecondary }]}>
+                    via {prettyTerminal(route.terminal)} · {route.stops.length} time points
+                  </Text>
+                </View>
+                <MaterialIcons name={isOpen ? 'expand-less' : 'expand-more'} size={22} color={c.textSecondary} />
               </TouchableOpacity>
 
               {isOpen && (
-                <>
+                <View style={[styles.routeCardBody, { borderTopColor: c.border }]}>
                   {!!route.description && (
                     <Text style={[styles.routeDescription, { color: c.textSecondary }]}>{route.description}</Text>
                   )}
-                  <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-                    {routeNum === '04'
-                      ? YELLOW_SCHEDULE.map((row, i) => (
-                          <View
-                            key={`${row.offset}-${row.label}-${i}`}
-                            style={[styles.flatRow, i < YELLOW_SCHEDULE.length - 1 && [styles.rowBorder, { borderBottomColor: c.border }]]}
-                          >
-                            <Text style={[styles.flatOffset, { color: tint }]}>{row.offset}</Text>
-                            <Text style={[styles.flatLabel, { color: c.text }]}>{row.label}</Text>
+                  {routeNum === '04'
+                    ? YELLOW_SCHEDULE.map((row, i) => (
+                        <View
+                          key={`${row.offset}-${row.label}-${i}`}
+                          style={[styles.flatRow, i < YELLOW_SCHEDULE.length - 1 && [styles.rowBorder, { borderBottomColor: c.border }]]}
+                        >
+                          <Text style={[styles.flatOffset, { color: tint }]}>{row.offset}</Text>
+                          <Text style={[styles.flatLabel, { color: c.text }]}>{row.label}</Text>
+                        </View>
+                      ))
+                    : route.stops.map((stop, i) => (
+                        <View
+                          key={stop.key}
+                          style={[styles.stopRow, i < route.stops.length - 1 && [styles.rowBorder, { borderBottomColor: c.border }]]}
+                        >
+                          <View style={[styles.stopBadge, { borderColor: route.color }]}>
+                            <Text style={[styles.stopBadgeText, { color: route.color }]}>{stop.number}</Text>
                           </View>
-                        ))
-                      : route.stops.map((stop, i) => (
-                          <View
-                            key={stop.key}
-                            style={[styles.stopRow, i < route.stops.length - 1 && [styles.rowBorder, { borderBottomColor: c.border }]]}
-                          >
-                            <View style={[styles.stopBadge, { borderColor: route.color }]}>
-                              <Text style={[styles.stopBadgeText, { color: route.color }]}>{stop.number}</Text>
-                            </View>
-                            <Text style={[styles.stopLabel, { color: c.text }]} numberOfLines={2}>{stop.label}</Text>
-                            <Text style={[styles.stopOffsets, { color: tint }]}>{minutesAfterHour(stop.times)}</Text>
-                          </View>
-                        ))}
-                  </View>
-                </>
+                          <Text style={[styles.stopLabel, { color: c.text }]} numberOfLines={2}>{stop.label}</Text>
+                          <Text style={[styles.stopOffsets, { color: tint }]}>{minutesAfterHour(stop.times)}</Text>
+                        </View>
+                      ))}
+                </View>
               )}
             </View>
           );
@@ -159,28 +192,39 @@ const styles = StyleSheet.create({
   pageSubtitle: { fontSize: 13, marginTop: 4, lineHeight: 18 },
   scrollContent: { paddingBottom: 32 },
 
-  section: { marginTop: 20 },
-  sectionLabel: { fontSize: 12, fontWeight: '600', letterSpacing: 0.8, marginBottom: 8, marginLeft: 4 },
-  card: { borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
+  sectionLabel: { fontSize: 12, fontWeight: '600', letterSpacing: 0.8, marginTop: 20, marginBottom: 8, marginLeft: 4 },
   rowBorder: { borderBottomWidth: StyleSheet.hairlineWidth },
-  plainRow: { padding: 14 },
+
+  hoursCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 16,
+  },
   hoursLabel: { fontSize: 14, fontWeight: '600' },
   hoursSub: { fontSize: 12, marginTop: 2 },
 
-  routeHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6, marginLeft: 4, paddingVertical: 4 },
-  routeTag: { minWidth: 32, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  routeCard: { borderRadius: 14, borderWidth: 1, overflow: 'hidden', marginBottom: 10 },
+  routeAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
+  routeHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingLeft: 16, paddingRight: 12 },
+  routeTag: { minWidth: 34, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
   routeTagText: { fontSize: 13, fontWeight: '700', color: '#fff' },
-  routeName: { fontSize: 16, fontWeight: '700', flex: 1 },
-  disclosureArrow: { fontSize: 14, fontWeight: '700', paddingHorizontal: 4 },
-  routeDescription: { fontSize: 12, lineHeight: 17, marginBottom: 8, marginLeft: 4 },
+  routeNameWrap: { flex: 1 },
+  routeName: { fontSize: 16, fontWeight: '700' },
+  routeTerminal: { fontSize: 12, marginTop: 1 },
+  routeCardBody: { borderTopWidth: StyleSheet.hairlineWidth },
+  routeDescription: { fontSize: 12, lineHeight: 17, paddingHorizontal: 14, paddingTop: 10, paddingLeft: 16 },
 
-  stopRow: { flexDirection: 'row', alignItems: 'center', padding: 12, paddingHorizontal: 14, gap: 10 },
+  stopRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingLeft: 16, paddingRight: 14, gap: 10 },
   stopBadge: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   stopBadgeText: { fontSize: 11, fontWeight: '800' },
   stopLabel: { fontSize: 13, flex: 1 },
   stopOffsets: { fontSize: 12, fontWeight: '700' },
 
-  flatRow: { flexDirection: 'row', alignItems: 'center', padding: 10, paddingHorizontal: 14, gap: 12 },
+  flatRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingLeft: 16, paddingRight: 14, gap: 12 },
   flatOffset: { fontSize: 13, fontWeight: '800', width: 36 },
   flatLabel: { fontSize: 13, flex: 1 },
 });
