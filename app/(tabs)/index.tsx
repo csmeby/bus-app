@@ -28,76 +28,60 @@ import { API_BASE } from '@/lib/api-base';
 import { cachedJsonFetch } from '@/lib/local-cache';
 import routePatterns from '../../routes_patterns.json';
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-// Pre-rotated heading-arrow images, one per 10° of compass heading, swapped
-// via the Marker `image` prop on an always-mounted marker. Why images and not
-// the obvious alternatives (all tried, all broken here):
-//   - native `rotation` prop: only implemented for Google Maps in
-//     react-native-maps 1.20.1 (MapMarker.java / AIRGoogleMapMarker.m) —
-//     AIRMapMarker (Apple Maps, this app's iOS provider) has no rotation
-//     property at all, so every arrow silently points north on iOS.
-//   - CSS-rotated children: need tracksViewChanges to reach the bitmap.
-//     Leaving it true re-snapshots the whole fleet every poll (Fabric
-//     mounting crash); false + heading-in-the-key remounts a native marker
-//     on every 10° bucket change — constant add/remove churn (this app's
-//     documented crash trigger) concentrated on tight-loop routes (01/03),
-//     plus blank arrows from the mount-time snapshot race.
-// An image swap is a plain native prop update: no remount, no snapshot, works
-// on every provider. Metro requires require() literals, hence the table.
-// Regenerate assets with the PIL snippet in the repo history if the bus
-// marker's geometry changes (arrow tip 18pt above center, canvas 40pt).
-const HEADING_ARROW_IMAGES: Record<number, any> = {
-  0: require('../../assets/images/heading_arrow_000.png'),
-  10: require('../../assets/images/heading_arrow_010.png'),
-  20: require('../../assets/images/heading_arrow_020.png'),
-  30: require('../../assets/images/heading_arrow_030.png'),
-  40: require('../../assets/images/heading_arrow_040.png'),
-  50: require('../../assets/images/heading_arrow_050.png'),
-  60: require('../../assets/images/heading_arrow_060.png'),
-  70: require('../../assets/images/heading_arrow_070.png'),
-  80: require('../../assets/images/heading_arrow_080.png'),
-  90: require('../../assets/images/heading_arrow_090.png'),
-  100: require('../../assets/images/heading_arrow_100.png'),
-  110: require('../../assets/images/heading_arrow_110.png'),
-  120: require('../../assets/images/heading_arrow_120.png'),
-  130: require('../../assets/images/heading_arrow_130.png'),
-  140: require('../../assets/images/heading_arrow_140.png'),
-  150: require('../../assets/images/heading_arrow_150.png'),
-  160: require('../../assets/images/heading_arrow_160.png'),
-  170: require('../../assets/images/heading_arrow_170.png'),
-  180: require('../../assets/images/heading_arrow_180.png'),
-  190: require('../../assets/images/heading_arrow_190.png'),
-  200: require('../../assets/images/heading_arrow_200.png'),
-  210: require('../../assets/images/heading_arrow_210.png'),
-  220: require('../../assets/images/heading_arrow_220.png'),
-  230: require('../../assets/images/heading_arrow_230.png'),
-  240: require('../../assets/images/heading_arrow_240.png'),
-  250: require('../../assets/images/heading_arrow_250.png'),
-  260: require('../../assets/images/heading_arrow_260.png'),
-  270: require('../../assets/images/heading_arrow_270.png'),
-  280: require('../../assets/images/heading_arrow_280.png'),
-  290: require('../../assets/images/heading_arrow_290.png'),
-  300: require('../../assets/images/heading_arrow_300.png'),
-  310: require('../../assets/images/heading_arrow_310.png'),
-  320: require('../../assets/images/heading_arrow_320.png'),
-  330: require('../../assets/images/heading_arrow_330.png'),
-  340: require('../../assets/images/heading_arrow_340.png'),
-  350: require('../../assets/images/heading_arrow_350.png'),
+// Pre-rotated heading-arrow images (36 buckets, 10° apart) swapped via the
+// native `image` prop — the only churn-free way to change a marker's visual
+// on react-native-maps (children + tracksViewChanges caused the fleet-wide
+// "TelemetryController::pullTransaction index beyond bounds" crash; keying on
+// heading mass-remounted every bus at once on every poll). Static requires
+// are mandatory — Metro can't resolve a computed path.
+const HEADING_ARROW_IMAGES: Record<string, number> = {
+  '000': require('../../assets/images/heading_arrow_000.png'),
+  '010': require('../../assets/images/heading_arrow_010.png'),
+  '020': require('../../assets/images/heading_arrow_020.png'),
+  '030': require('../../assets/images/heading_arrow_030.png'),
+  '040': require('../../assets/images/heading_arrow_040.png'),
+  '050': require('../../assets/images/heading_arrow_050.png'),
+  '060': require('../../assets/images/heading_arrow_060.png'),
+  '070': require('../../assets/images/heading_arrow_070.png'),
+  '080': require('../../assets/images/heading_arrow_080.png'),
+  '090': require('../../assets/images/heading_arrow_090.png'),
+  '100': require('../../assets/images/heading_arrow_100.png'),
+  '110': require('../../assets/images/heading_arrow_110.png'),
+  '120': require('../../assets/images/heading_arrow_120.png'),
+  '130': require('../../assets/images/heading_arrow_130.png'),
+  '140': require('../../assets/images/heading_arrow_140.png'),
+  '150': require('../../assets/images/heading_arrow_150.png'),
+  '160': require('../../assets/images/heading_arrow_160.png'),
+  '170': require('../../assets/images/heading_arrow_170.png'),
+  '180': require('../../assets/images/heading_arrow_180.png'),
+  '190': require('../../assets/images/heading_arrow_190.png'),
+  '200': require('../../assets/images/heading_arrow_200.png'),
+  '210': require('../../assets/images/heading_arrow_210.png'),
+  '220': require('../../assets/images/heading_arrow_220.png'),
+  '230': require('../../assets/images/heading_arrow_230.png'),
+  '240': require('../../assets/images/heading_arrow_240.png'),
+  '250': require('../../assets/images/heading_arrow_250.png'),
+  '260': require('../../assets/images/heading_arrow_260.png'),
+  '270': require('../../assets/images/heading_arrow_270.png'),
+  '280': require('../../assets/images/heading_arrow_280.png'),
+  '290': require('../../assets/images/heading_arrow_290.png'),
+  '300': require('../../assets/images/heading_arrow_300.png'),
+  '310': require('../../assets/images/heading_arrow_310.png'),
+  '320': require('../../assets/images/heading_arrow_320.png'),
+  '330': require('../../assets/images/heading_arrow_330.png'),
+  '340': require('../../assets/images/heading_arrow_340.png'),
+  '350': require('../../assets/images/heading_arrow_350.png'),
 };
-// Same canvas, fully transparent — mounted in place of the arrow for a bus
-// with no known heading yet, because unmounting is exactly the churn the
-// table above exists to avoid (and Marker opacity is documented broken).
 const HEADING_BLANK_IMAGE = require('../../assets/images/heading_blank.png');
 
-function headingArrowImage(heading: number | null): any {
-  if (heading == null) return HEADING_BLANK_IMAGE;
-  // Round to the nearest 10° bucket; 360 wraps to 0.
+function headingArrowImage(heading: number | null | undefined): number {
+  if (typeof heading !== 'number' || isNaN(heading)) return HEADING_BLANK_IMAGE;
   const bucket = (Math.round(heading / 10) * 10) % 360;
-  // Negative headings shouldn't occur, but a miss here must never render a
-  // broken marker — fall back to blank rather than an undefined source.
-  return HEADING_ARROW_IMAGES[bucket] ?? HEADING_BLANK_IMAGE;
+  const key = String(bucket < 0 ? bucket + 360 : bucket).padStart(3, '0');
+  return HEADING_ARROW_IMAGES[key] ?? HEADING_BLANK_IMAGE;
 }
+
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 // Dedicated offline fallback for /route-patterns — deliberately separate from
 // lib/local-cache's generic cachedJsonFetch, which would treat a 200-with-{}
@@ -367,12 +351,6 @@ export default function MapScreen() {
   // animate-on-update effect below has even run) and shared read-only by the
   // bus icon, its heading arrow, and its callout, so all three move in sync.
   const busRegionsRef = useRef<Map<string, InstanceType<typeof AnimatedRegion>>>(new Map()).current;
-  // Last known valid heading per bus, kept across polls where the live feed
-  // reports no heading at all (common mid-turn, just-stopped, or between GPS
-  // fixes — not a bug, just how vehicle telemetry behaves) — without this,
-  // the arrow blinked out on any such poll even though the bus hadn't
-  // actually stopped moving in a meaningful sense.
-  const lastHeadingRef = useRef<Map<string, number>>(new Map()).current;
   // Buses whose route is deselected are "parked" here (far off-map) instead
   // of being hidden via the Marker `opacity` prop or unmounted:
   //  - opacity on Marker.Animated didn't apply on-device (buses never
@@ -450,13 +428,8 @@ export default function MapScreen() {
   // response after the user dismissed it.
   const stopReqIdRef = useRef(0);
   const expandedReqIdRef = useRef(0);
+  const mapRef = useRef<MapView>(null);
 
-  // Ticks every second so the hold countdown below is smooth, independent of
-  // the 10s /buses poll interval (which still drives whether a hold exists at
-  // all). The interval itself only runs while a hold banner is actually
-  // showing — see the effect next to stopHoldBus below. It used to run
-  // unconditionally, re-rendering the entire map (every polyline/marker prop
-  // recompute) once a second for the app's whole lifetime.
   const [holdTick, setHoldTick] = useState(() => Date.now());
 
   // ── bus callout ──────────────────────────────────────────────────────────
@@ -475,23 +448,22 @@ export default function MapScreen() {
   // something sensible for a poll or two if the bus briefly drops out of
   // /buses (GPS gap) instead of the content disappearing out from under the user.
   const [busSnapshot, setBusSnapshot] = useState<any | null>(null);
-  // Fleet-info modal — opened by tapping the bus number inside its callout.
   const [fleetInfoBus, setFleetInfoBus] = useState<{ name: string; info: FleetBlock | null } | null>(null);
 
   // ── route helpers ──────────────────────────────────────────────────────────
 
   const toggleRoute = (route: string) => {
+    if (animateTimeoutRef.current) {
+      clearTimeout(animateTimeoutRef.current);
+      animateTimeoutRef.current = null;
+    }
+    
     if (route === 'all') {
-      // Tapping ALL toggles it off to an empty selection rather than being sticky.
       setSelectedRoutes(prev => (prev.includes('all') ? [] : ['all']));
       return;
     }
-    // Functional update — two quick taps used to both read the same stale
-    // `selectedRoutes` closure and the second one silently undid the first.
     setSelectedRoutes(prev => {
       const next = prev.filter(r => r !== 'all');
-      // Deselecting the last route leaves the map empty — it does NOT jump back
-      // to 'all routes', which was disorienting (and rendered everything at once).
       return next.includes(route) ? next.filter(r => r !== route) : [...next, route];
     });
   };
@@ -625,20 +597,7 @@ export default function MapScreen() {
   // needs no mount churn and no opacity prop at all.
   const dedupedBuses = useMemo(() => {
     const seen = new Set<string>();
-    return buses.filter(b => {
-      if (seen.has(b.name)) return false;
-      // A bus with a missing/NaN lat or lon (GPS dropout, a just-registered
-      // extra trip with no fix yet) fed straight into a Marker's
-      // AnimatedRegion is exactly the kind of malformed native coordinate
-      // that crashes Fabric's mounting commit with "insertObject: object
-      // cannot be nil" — a native-layer abort with no JS-catchable error,
-      // since the JS side never sees anything invalid, only `undefined`
-      // silently riding along in an otherwise well-formed object. Drop it
-      // here instead of ever handing it to a Marker.
-      if (typeof b.lat !== 'number' || typeof b.lon !== 'number' || !Number.isFinite(b.lat) || !Number.isFinite(b.lon)) return false;
-      seen.add(b.name);
-      return true;
-    });
+    return buses.filter(b => { if (seen.has(b.name)) return false; seen.add(b.name); return true; });
   }, [buses]);
 
   // Count for the "N active" badge — only buses on currently-selected routes.
@@ -723,25 +682,13 @@ export default function MapScreen() {
         if (!selectedRoutes.includes(r)) return false;
         const keys = stop.dirKeys[r] ?? [];
         if (keys.length === 0) return true;    // no direction data — always show
-        // A stop tracked by ANY active reroute already got a definitive,
-        // staleness-independent answer above (unservedBySelectedRoute,
-        // matched by direction name) — reaching this line means that
-        // answer was "not unserved for the currently selected direction",
-        // so trust it instead of the stale catch-all below, which would
-        // otherwise force the stop visible (✕ badge and all) on any stale
-        // route regardless of direction — and a reroute (often on both
-        // directions at once) is exactly what flags a route stale in the
-        // first place, which showed the OTHER direction's closed stops no
-        // matter which direction was actually selected (confirmed 2026-07-16
-        // on route 36).
-        if (staleRouteMap[r] && !unservedStopCodes.has(stop.code)) return true;
-        if (staleRouteMap[r]) return false;    // reroute-tracked + stale: already answered above
+        if (staleRouteMap[r]) return true;     // can't trust direction mapping — show all
         return keys.includes(effectiveDirByRoute[r]);
       });
       if (show) s.add(stop.code);
     });
     return s;
-  }, [routeStops, selectedRoutes, effectiveDirByRoute, staleRouteMap, reroutes, isSelectedDirection, unservedStopCodes]);
+  }, [routeStops, selectedRoutes, effectiveDirByRoute, staleRouteMap, reroutes, isSelectedDirection]);
 
   const routeLabel = selectedRoutes.includes('all')
     ? 'All Routes'
@@ -795,6 +742,76 @@ export default function MapScreen() {
       return aEmpty - bEmpty;
     });
   }, [stopTimes, stopSchedule, stopDate, showAllStopRoutes, selectedRoutes]);
+
+  const selectedRouteBounds = useMemo(() => {
+    if (selectedRoutes.length === 0) return null;
+    
+    let minLat = Infinity, maxLat = -Infinity;
+    let minLng = Infinity, maxLng = -Infinity;
+    let hasCoords = false;
+
+    selectedRoutes.forEach(route => {
+      const dirs = routeLines[route];
+      if (!dirs) return;
+      
+      const effectiveDir = effectiveDirByRoute[route];
+      const coords = dirs[effectiveDir];
+      if (!coords || coords.length === 0) return;
+      
+      coords.forEach(({ latitude, longitude }) => {
+        minLat = Math.min(minLat, latitude);
+        maxLat = Math.max(maxLat, latitude);
+        minLng = Math.min(minLng, longitude);
+        maxLng = Math.max(maxLng, longitude);
+        hasCoords = true;
+      });
+    });
+
+    if (!hasCoords) return null;
+
+    const latPadding = (maxLat - minLat) * 0.15;
+    const lngPadding = (maxLng - minLng) * 0.15;
+
+    return {
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLng + maxLng) / 2,
+      latitudeDelta: (maxLat - minLat) + latPadding * 2,
+      longitudeDelta: (maxLng - minLng) + lngPadding * 2,
+    };
+  }, [selectedRoutes, routeLines, effectiveDirByRoute]);
+
+  // All Routes case
+  const allRoutesBounds = useMemo(() => {
+    if (!selectedRoutes.includes('all')) return null;
+    
+    let minLat = Infinity, maxLat = -Infinity;
+    let minLng = Infinity, maxLng = -Infinity;
+    let hasCoords = false;
+
+    Object.entries(routeLines).forEach(([route, dirs]) => {
+      const coords = Object.values(dirs).flat();
+      coords.forEach(({ latitude, longitude }) => {
+        minLat = Math.min(minLat, latitude);
+        maxLat = Math.max(maxLat, latitude);
+        minLng = Math.min(minLng, longitude);
+        maxLng = Math.max(maxLng, longitude);
+        hasCoords = true;
+      });
+    });
+
+    if (!hasCoords) return null;
+    
+    const latPadding = (maxLat - minLat) * 0.15;
+    const lngPadding = (maxLng - minLng) * 0.15;
+
+    return {
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLng + maxLng) / 2,
+      latitudeDelta: (maxLat - minLat) + latPadding * 2,
+      longitudeDelta: (maxLng - minLng) + lngPadding * 2,
+    };
+  }, [selectedRoutes, routeLines]);
+
 
   // ── data loading ───────────────────────────────────────────────────────────
 
@@ -875,17 +892,10 @@ export default function MapScreen() {
         if (!pattern.coordinates) return;
         const dirKey: string = (pattern.direction_key || `pattern_${idx}`).toLowerCase();
 
-        // Drop any point missing/NaN lat or lng rather than passing it
-        // through — an {latitude: undefined} coordinate inside a Polyline's
-        // coordinates array is exactly the malformed-native-prop shape that
-        // crashes Fabric's mounting commit with "insertObject: object cannot
-        // be nil" (a native abort, no JS-catchable error).
-        routeDirs[dirKey] = (pattern.coordinates as any[])
-          .filter(({ lat, lng }) => typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng))
-          .map(({ lat, lng }) => ({
-            latitude: lat,
-            longitude: lng,
-          }));
+        routeDirs[dirKey] = (pattern.coordinates as any[]).map(({ lat, lng }) => ({
+          latitude: lat,
+          longitude: lng,
+        }));
 
         (pattern.stops as any[] | undefined)?.forEach((stop) => {
           if (!stop.lat || !stop.lng) return;
@@ -972,26 +982,7 @@ export default function MapScreen() {
       try {
         const res = await fetch(`${API_BASE}/buses`);
         const data: any[] = await res.json();
-        // Heading is resolved HERE, not during render: the render-phase
-        // lastHeadingRef mutation this replaced was a purity violation that
-        // the React Compiler (enabled in app.json) is explicitly allowed to
-        // break — a memoized render skipping the `.set()` would silently
-        // freeze/blank arrows. Number(), not typeof: the feed isn't
-        // consistent about number-vs-numeric-string across routes/polls.
-        // Falls back to the bus's last known heading when a poll omits it
-        // (common mid-turn/just-stopped — telemetry behavior, not a bug),
-        // so the arrow holds its old direction instead of blinking out.
-        setBuses(data.map(b => {
-          const parsedHeading = Number(b.heading);
-          if (b.heading != null && Number.isFinite(parsedHeading)) {
-            lastHeadingRef.set(b.name, parsedHeading);
-          }
-          return {
-            ...b,
-            directionKey: b.directionKey?.toLowerCase(),
-            heading: lastHeadingRef.get(b.name) ?? null,
-          };
-        }));
+        setBuses(data.map(b => ({ ...b, directionKey: b.directionKey?.toLowerCase() })));
       } catch (e) {
         console.warn('Bus fetch failed:', e);
       }
@@ -999,10 +990,7 @@ export default function MapScreen() {
     fetchBuses();
     const id = setInterval(fetchBuses, 10000);
     return () => clearInterval(id);
-    // lastHeadingRef is a stable useRef().current Map — listed only to
-    // satisfy exhaustive-deps; it never changes identity, so this still
-    // runs once on mount.
-  }, [lastHeadingRef]);
+  }, []);
 
   useEffect(() => {
     // Server re-checks pattern geometry every 5 minutes; polling faster than
@@ -1082,7 +1070,6 @@ export default function MapScreen() {
       if (!liveNames.has(name)) {
         busRegionsRef.delete(name);
         shownBusesRef.delete(name);
-        lastHeadingRef.delete(name);
       }
     });
     // Position/visibility driver: hidden buses park off-map, a bus whose
@@ -1350,6 +1337,43 @@ export default function MapScreen() {
     return () => clearInterval(id);
   }, [stopHoldBus]);
 
+  const previousSelectedRoutesRef = useRef<string[]>([]);
+  const animateTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const prev = previousSelectedRoutesRef.current;
+    
+    // Check if selection actually changed
+    const changed = selectedRoutes.length !== prev.length || 
+      selectedRoutes.some(r => !prev.includes(r));
+    
+    if (changed) {
+      // Clear any pending animation
+      if (animateTimeoutRef.current) {
+        clearTimeout(animateTimeoutRef.current);
+        animateTimeoutRef.current = null;
+      }
+      
+      // Don't animate if nothing is selected
+      if (selectedRoutes.length === 0) return;
+      
+      // Small delay to let polylines render
+      animateTimeoutRef.current = setTimeout(() => {
+        const bounds = selectedRoutes.includes('all') 
+          ? allRoutesBounds 
+          : selectedRouteBounds;
+        
+        if (bounds && mapRef.current) {
+          mapRef.current.animateToRegion(bounds, 800);
+        }
+        
+        animateTimeoutRef.current = null;
+      }, 100);
+    }
+    
+    previousSelectedRoutesRef.current = selectedRoutes;
+  }, [selectedRoutes, selectedRouteBounds, allRoutesBounds]);
+
   // Reference point for the depleting bar fill: "how much hold time was left
   // when we first saw this hold" — recomputed only when the hold's target
   // (scheduledDepartTime) changes, not on every tick.
@@ -1374,19 +1398,28 @@ export default function MapScreen() {
     ? new Date(stopHoldBus.hold.scheduledDepartTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     : '';
 
+  useEffect(() => {
+    return () => {
+      if (animateTimeoutRef.current) {
+        clearTimeout(animateTimeoutRef.current);
+        animateTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+
   // ── render ─────────────────────────────────────────────────────────────────
 
   return (
     <View style={styles.root}>
       <MapView
+        ref={mapRef}
         style={StyleSheet.absoluteFillObject}
         userInterfaceStyle={scheme}
         customMapStyle={scheme === 'dark' ? DARK_MAP_STYLE : []}
         initialRegion={{ latitude: 30.615, longitude: -96.34, latitudeDelta: 0.022, longitudeDelta: 0.022 }}
         showsUserLocation={locationGranted}
         showsMyLocationButton={locationGranted}
-        showsPointsOfInterest={false}
-        showsBuildings={false}
         onPress={() => {
           if (selectedBusName) closeBusCallout();
         }}
@@ -1408,31 +1441,8 @@ export default function MapScreen() {
             const isSelectedDir = polylineCount === 1 || stale || dirKey === effectiveDir;
             // A rerouted direction's bundled geometry is outdated — hide it;
             // the reroute overlay below draws both the live path and the
-            // dashed regular path instead. Matched by direction NAME, not raw
-            // key: reroutes[route] is keyed by reroute_watch's own dk
-            // namespace, which rotates independently of dirKey (routeLines/
-            // routeInfo's direction_key) — see isSelectedDirection above. A
-            // raw-key check here almost always missed, so the stale bundled
-            // polyline kept rendering in full color right alongside the
-            // reroute overlay's actual live path (visible as "two paths" on
-            // the rerouted direction — confirmed 2026-07-16).
-            // When the route itself is flagged stale, bundled dirKey can't be
-            // mapped to a live direction name at all (that's what stale
-            // means), so per-direction matching is impossible either way —
-            // hide this route's bundled lines entirely whenever ANY reroute
-            // is active for it rather than risk showing the wrong (possibly
-            // rerouted) one at full strength; the reroute overlay (below,
-            // matched independently by direction name from the live /reroutes
-            // payload, unaffected by bundle staleness) still covers both
-            // directions on its own.
-            const dirKeyName = routeInfo[route]?.directions?.find(d => d.key === dirKey)?.name;
-            const isRerouted = stale
-              ? Object.keys(reroutes[route] ?? {}).length > 0
-              : Object.entries(reroutes[route] ?? {}).some(([rdk, rd]) =>
-                  dirKeyName && rd.directionName
-                    ? dirKeyName.trim().toLowerCase() === rd.directionName.trim().toLowerCase()
-                    : rdk === dirKey
-                );
+            // dashed regular path instead.
+            const isRerouted = !!reroutes[route]?.[dirKey];
             let strokeColor: string;
             if (!isActive || isRerouted) {
               strokeColor = 'rgba(0,0,0,0)';
@@ -1478,37 +1488,19 @@ export default function MapScreen() {
         {Object.entries(reroutesGeometry).flatMap(([route, dirs]) => {
           const isSelected = selectedRoutes.includes('all') || selectedRoutes.includes(route);
           const color = routeColors[route] ?? '#888888';
+          const stale = !!staleRouteMap[route];
           const polylineCount = Object.keys(routeLines[route] ?? {}).length;
           return Object.entries(dirs).flatMap(([dk, info]) => {
-            // Drop any malformed point (missing/NaN lat or lng) rather than
-            // passing it through to a Polyline's coordinates array — see the
-            // matching guard in applyPatterns for why that specific shape
-            // crashes Fabric's mounting commit natively.
-            const isValidPoint = (p: any) =>
-              p && typeof p.latitude === 'number' && typeof p.longitude === 'number' && Number.isFinite(p.latitude) && Number.isFinite(p.longitude);
-            if (!Array.isArray(info?.currentCoordinates)) return [];
-            if (!Array.isArray(info?.baselineCoordinates)) return [];
-            const currentCoordinates = info.currentCoordinates.filter(isValidPoint);
-            const baselineCoordinates = info.baselineCoordinates.filter(isValidPoint);
-            if (currentCoordinates.length < 2 || baselineCoordinates.length < 2) return [];
+            if (!Array.isArray(info?.currentCoordinates) || info.currentCoordinates.length < 2) return [];
+            if (!Array.isArray(info?.baselineCoordinates) || info.baselineCoordinates.length < 2) return [];
             // Matched by direction NAME, not raw key — see
             // isSelectedDirection. A reroute's directionKey can rotate on
             // every single poll while the detour is active, which made this
             // raw-key comparison against effectiveDirByRoute (a separately
             // and less-frequently polled snapshot) miss almost every time,
             // hiding the dashed baseline line entirely (confirmed 2026-07-15
-            // on route 04). Deliberately does NOT fall back to `stale` (unlike
-            // the bundled-polyline block above): info.directionName and
-            // selectedDirNameByRoute both come from live sources (the
-            // /reroutes payload and /routes respectively) that are entirely
-            // independent of the bundled-pattern-vs-live-key mismatch that
-            // "stale" detects, so name matching stays reliable even when the
-            // route is stale — forcing full-strength display whenever stale
-            // was hiding correct dimming for exactly the routes (04/12/36)
-            // where a reroute is also active, since a bidirectional detour
-            // is the most common way a whole route ends up flagged stale
-            // (confirmed 2026-07-16).
-            const isSelectedDir = polylineCount <= 1
+            // on route 04).
+            const isSelectedDir = polylineCount <= 1 || stale
               || isSelectedDirection(route, dk, info.directionName, effectiveDirByRoute[route]);
             // The dashed baseline is binary — fully hidden on the
             // non-selected direction — same as the proven-safe hide-based
@@ -1538,7 +1530,7 @@ export default function MapScreen() {
             return [
               <Polyline
                 key={`reroute-base-${route}-${dk}`}
-                coordinates={baselineCoordinates}
+                coordinates={info.baselineCoordinates}
                 strokeColor={baseColor}
                 strokeWidth={dashedVisible ? 3 : 0}
                 lineDashPattern={[14, 10]}
@@ -1556,7 +1548,7 @@ export default function MapScreen() {
               />,
               <Polyline
                 key={`reroute-cur-${route}-${dk}`}
-                coordinates={currentCoordinates}
+                coordinates={info.currentCoordinates}
                 strokeColor={curColor}
                 strokeWidth={solidVisible ? (isSelectedDir ? 5 : 3.5) : 0}
                 zIndex={3}
@@ -1583,23 +1575,15 @@ export default function MapScreen() {
           // raw-key comparison miss constantly and dim buses that were
           // actually on the selected direction. Falls back to the old
           // key comparison when a name isn't available on either side (via
-          // isSelectedDirection). Deliberately does NOT fall back to
-          // staleRouteMap: bus.direction and selectedDirNameByRoute are both
-          // live-sourced names, independent of the bundled-pattern-vs-live-key
-          // mismatch "stale" detects, so name matching stays reliable even on
-          // a stale route — and a stale route is exactly what a bidirectional
-          // reroute produces (see the reroute-overlay comment above), so
-          // trusting staleRouteMap here undimmed every bus on 04/12/36
-          // regardless of actual direction (confirmed 2026-07-16).
+          // isSelectedDirection). When routes_patterns.json is stale we
+          // can't trust ANY direction mapping, so staleRouteMap disables
+          // dimming and shows all buses at full opacity instead of guessing.
           const isBusSelectedDir =
             selectedRoutes.includes('all') ||
+            !!staleRouteMap[bus.route] ||
             bus.directionKey == null ||
             isSelectedDirection(bus.route, bus.directionKey, bus.direction, effectiveDirByRoute[bus.route]);
           const busFillColor = isBusSelectedDir ? color : dimColor(color);
-          // Already normalized to number|null (with last-known fallback) in
-          // fetchBuses — resolving it during render mutated lastHeadingRef
-          // mid-render, which the React Compiler is allowed to memoize away.
-          const heading = typeof bus.heading === 'number' ? bus.heading : null;
           // Shared by this bus's icon, heading arrow, and (if open) its callout
           // below, so a position update glides all of them together instead of
           // each independently snapping to the new point.
@@ -1646,39 +1630,27 @@ export default function MapScreen() {
             </Marker.Animated>,
           ];
 
-          // Separate, callout-free marker for the heading arrow — ALWAYS
-          // mounted, one per bus, stable key, exactly like the bus marker
-          // itself. Two prior arrow designs both used custom children and
-          // both broke on this app's documented native failure modes:
-          //   1. children + tracksViewChanges={true} on every arrow → the
-          //      whole fleet re-snapshotted simultaneously every poll (Fabric
-          //      mounting-transaction "index beyond bounds" crash);
-          //   2. children + tracksViewChanges={false} with the rounded
-          //      heading baked into the KEY → constant native remove/insert
-          //      churn (this file's confirmed crash trigger) concentrated on
-          //      tight-loop routes like 01/03 whose buses cross a 10° bucket
-          //      nearly every poll, plus blank arrows from the known
-          //      mount-time snapshot race (tracksViewChanges={false} captures
-          //      the bitmap before the child View has laid out).
-          // The escape hatch: pre-rotated `image`-prop icons, swapped per 10°
-          // heading bucket — a pure native prop update on a stable marker, no
-          // remount, no snapshot, and (unlike the native `rotation` prop,
-          // which Apple Maps doesn't implement) works on every provider. See
-          // HEADING_ARROW_IMAGES at the top of the file for the full history.
-          // The arrowhead's offset from the bus center is baked into the
-          // (mostly transparent) PNG so it sits above the bus and orbits it
-          // as the heading changes. A bus with no heading yet keeps the
-          // marker mounted and swaps to the fully transparent image instead —
-          // conditional mounting is the exact churn this replaces, and the
-          // `opacity` prop is documented broken on Marker.Animated.
-          // tappable={false} + a lower zIndex stop this marker (sharing the
-          // bus's exact coordinate) from stealing taps meant for the bus.
+          // Separate, callout-free marker for the heading arrow. react-native-maps only
+          // honors the native `rotation` prop for markers using the `image` prop on
+          // Google Maps — AIRMapMarker (Apple Maps, this app's iOS provider) doesn't
+          // implement it, so arrows would silently all point north. Custom children +
+          // tracksViewChanges (rotating a View with CSS transform) caused a fleet-wide
+          // crash on every poll ("TelemetryController::pullTransaction index beyond
+          // bounds") since react-native-maps' children snapshot path isn't safe at this
+          // update frequency. Fix: pre-rotated PNGs swapped via the `image` prop, which
+          // updates in place with no re-snapshot needed. ALWAYS mounted (never
+          // conditionally pushed) — a bus's heading flipping between number/null across
+          // polls must never add/remove this marker, that's the same mass mount/unmount
+          // churn that crashes the bus and stop markers elsewhere on this map. No-heading
+          // buses get a transparent placeholder image instead of being omitted.
+          // tappable={false} + a lower zIndex stop this marker (sharing the bus's exact
+          // coordinate) from intercepting taps meant for the bus marker underneath it.
           markers.push(
             <Marker.Animated
-              key={`${bus.name}-arrow`}
+              key={`${bus.name}-heading`}
               coordinate={region as any}
               anchor={{ x: 0.5, y: 0.5 }}
-              image={headingArrowImage(heading)}
+              image={headingArrowImage(bus.heading)}
               tracksViewChanges={false}
               tappable={false}
               zIndex={9}
@@ -1778,6 +1750,7 @@ export default function MapScreen() {
             coordinate={(busRegionsRef.get(selectedBus.name) ?? { latitude: selectedBus.lat, longitude: selectedBus.lon }) as any}
             anchor={{ x: 0.5, y: 1 }}
             tracksViewChanges
+            tappable={false}
             zIndex={4}
           >
             <View style={styles.calloutMarkerWrap}>
@@ -2278,9 +2251,6 @@ export default function MapScreen() {
                       <Text style={styles.pillText}>⚡ Electric</Text>
                     </View>
                   )}
-                  <View style={[styles.pill, { backgroundColor: fleetInfoBus.info.retired ? '#6B7280' : '#2563EB' }]}>
-                    <Text style={styles.pillText}>{fleetInfoBus.info.retired ? 'Retired' : 'Active fleet'}</Text>
-                  </View>
                 </View>
 
                 <View style={styles.fleetSpecGrid}>
@@ -2899,7 +2869,6 @@ const styles = StyleSheet.create({
   fullScheduleChipText: { fontSize: 13, fontWeight: '500' },
   fullScheduleChipTextCancelled: { fontSize: 13, fontWeight: '600', color: '#DC2626' },
 
-  // Bus fleet-info card
   fleetCard: {
     position: 'absolute',
     left: 16,

@@ -229,8 +229,6 @@ export default function BtdMapScreen() {
         userInterfaceStyle={scheme}
         customMapStyle={scheme === 'dark' ? DARK_MAP_STYLE : []}
         initialRegion={{ latitude: 30.625, longitude: -96.32, latitudeDelta: 0.16, longitudeDelta: 0.16 }}
-        showsPointsOfInterest={false}
-        showsBuildings={false}
         onPress={closeStop}
       >
         {ALL_BTD_ROUTES.map(routeNum => {
