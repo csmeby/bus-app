@@ -345,6 +345,15 @@ export default function MapScreen() {
   }, []);
 
   const [buses, setBuses] = useState<any[]>([]);
+  // Heading-arrow markers use the `image` prop (not children) to stay churn-free
+  // (see HEADING_ARROW_IMAGES above), but react-native-maps on iOS doesn't
+  // reliably repaint a Marker's native icon when `image` changes on an already-
+  // mounted marker — it needs tracksViewChanges nudged to force a re-snapshot.
+  // A per-bus key/tracksViewChanges toggle would be the same mass-remount crash
+  // already hit for these routes; instead this pulses tracksViewChanges true for
+  // every heading marker together, once per poll, then back to false — shared
+  // state for a refresh that's shared across many markers, per the lesson above.
+  const [headingRefreshPulse, setHeadingRefreshPulse] = useState(false);
   // One AnimatedRegion per bus (keyed by name), reused across polls so a
   // position update glides there instead of snapping — created lazily during
   // render (so it exists from the very first frame a bus appears, before the
@@ -983,6 +992,10 @@ export default function MapScreen() {
         const res = await fetch(`${API_BASE}/buses`);
         const data: any[] = await res.json();
         setBuses(data.map(b => ({ ...b, directionKey: b.directionKey?.toLowerCase() })));
+        // Nudge every heading marker to re-snapshot its (possibly changed)
+        // image together, once per poll — see headingRefreshPulse above.
+        setHeadingRefreshPulse(true);
+        setTimeout(() => setHeadingRefreshPulse(false), 100);
       } catch (e) {
         console.warn('Bus fetch failed:', e);
       }
@@ -1630,28 +1643,13 @@ export default function MapScreen() {
             </Marker.Animated>,
           ];
 
-          // Separate, callout-free marker for the heading arrow. react-native-maps only
-          // honors the native `rotation` prop for markers using the `image` prop on
-          // Google Maps — AIRMapMarker (Apple Maps, this app's iOS provider) doesn't
-          // implement it, so arrows would silently all point north. Custom children +
-          // tracksViewChanges (rotating a View with CSS transform) caused a fleet-wide
-          // crash on every poll ("TelemetryController::pullTransaction index beyond
-          // bounds") since react-native-maps' children snapshot path isn't safe at this
-          // update frequency. Fix: pre-rotated PNGs swapped via the `image` prop, which
-          // updates in place with no re-snapshot needed. ALWAYS mounted (never
-          // conditionally pushed) — a bus's heading flipping between number/null across
-          // polls must never add/remove this marker, that's the same mass mount/unmount
-          // churn that crashes the bus and stop markers elsewhere on this map. No-heading
-          // buses get a transparent placeholder image instead of being omitted.
-          // tappable={false} + a lower zIndex stop this marker (sharing the bus's exact
-          // coordinate) from intercepting taps meant for the bus marker underneath it.
           markers.push(
             <Marker.Animated
               key={`${bus.name}-heading`}
               coordinate={region as any}
               anchor={{ x: 0.5, y: 0.5 }}
               image={headingArrowImage(bus.heading)}
-              tracksViewChanges={false}
+              tracksViewChanges={headingRefreshPulse}
               tappable={false}
               zIndex={9}
             />,
@@ -2873,7 +2871,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    bottom: '20%',
+    top: '50%',
+    transform: [{ translateY: -150 }], // Start with ~half of min height
     borderRadius: 20,
     overflow: 'hidden',
     shadowColor: '#000',

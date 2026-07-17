@@ -146,6 +146,7 @@ export default function BtdMapScreen() {
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [selectedStop, setSelectedStop] = useState<MergedStop | null>(null);
   const stopSheetAnim = useRef(new Animated.Value(0)).current;
+  const mapRef = useRef<MapView>(null);
 
   // Re-derives "next departure" highlights every 30s while a stop sheet is
   // open — the schedule itself is static, only "now" moves.
@@ -211,6 +212,84 @@ export default function BtdMapScreen() {
     }));
   }, [activeRouteNums]);
 
+  // ── route bounds for zoom-to-fit ─────────────────────────────────────────
+  const selectedRouteBounds = useMemo(() => {
+    const activeRoutes = selectedRoutes.includes('all') ? ALL_BTD_ROUTES : selectedRoutes;
+    if (activeRoutes.length === 0) return null;
+    
+    let minLat = Infinity, maxLat = -Infinity;
+    let minLng = Infinity, maxLng = -Infinity;
+    let hasCoords = false;
+
+    activeRoutes.forEach(routeNum => {
+      const route = btdRoutes[routeNum];
+      if (!route?.path) return;
+      
+      route.path.forEach(({ lat, lng }) => {
+        minLat = Math.min(minLat, lat);
+        maxLat = Math.max(maxLat, lat);
+        minLng = Math.min(minLng, lng);
+        maxLng = Math.max(maxLng, lng);
+        hasCoords = true;
+      });
+    });
+
+    if (!hasCoords) return null;
+
+    const latPadding = (maxLat - minLat) * 0.2;
+    const lngPadding = (maxLng - minLng) * 0.2;
+
+    return {
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLng + maxLng) / 2,
+      latitudeDelta: (maxLat - minLat) + latPadding * 2,
+      longitudeDelta: (maxLng - minLng) + lngPadding * 2,
+    };
+  }, [selectedRoutes]);
+
+  // ── zoom to fit selected routes ──────────────────────────────────────────
+  const previousSelectedRoutesRef = useRef<string[]>([]);
+  const animateTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const prev = previousSelectedRoutesRef.current;
+    
+    // Check if selection actually changed
+    const changed = selectedRoutes.length !== prev.length || 
+      selectedRoutes.some(r => !prev.includes(r));
+    
+    if (changed) {
+      // Clear any pending animation
+      if (animateTimeoutRef.current) {
+        clearTimeout(animateTimeoutRef.current);
+        animateTimeoutRef.current = null;
+      }
+      
+      // Don't animate if nothing is selected
+      if (selectedRoutes.length === 0) return;
+      
+      // Small delay to let polylines render
+      animateTimeoutRef.current = setTimeout(() => {
+        if (selectedRouteBounds && mapRef.current) {
+          mapRef.current.animateToRegion(selectedRouteBounds, 800);
+        }
+        animateTimeoutRef.current = null;
+      }, 100);
+    }
+    
+    previousSelectedRoutesRef.current = selectedRoutes;
+  }, [selectedRoutes, selectedRouteBounds]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (animateTimeoutRef.current) {
+        clearTimeout(animateTimeoutRef.current);
+        animateTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   const openStop = useCallback((stop: MergedStop) => {
     setNowTick(Date.now()); // fresh "now" the moment it opens, not up to 30s stale
     setSelectedStop(stop);
@@ -225,6 +304,7 @@ export default function BtdMapScreen() {
   return (
     <View style={styles.root}>
       <MapView
+        ref={mapRef}
         style={StyleSheet.absoluteFillObject}
         userInterfaceStyle={scheme}
         customMapStyle={scheme === 'dark' ? DARK_MAP_STYLE : []}
