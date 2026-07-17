@@ -1330,6 +1330,22 @@ export default function MapScreen() {
     };
   }, [selectedBus, routeLines]);
 
+  // The callout marker's tracksViewChanges was left hard-`true` (its content —
+  // passengers/off-route/unit — updates live), but that means every re-render
+  // while it's open forces react-native-maps to re-snapshot a marker with rich
+  // children, which under this app's Fabric/New Architecture setup is the same
+  // native-mounting crash family already hit and fixed for the heading arrows
+  // (see headingRefreshPulse above) — just triggered by opening a callout
+  // instead of a bus poll. Same fix: pulse tracksViewChanges only when the
+  // callout's actual visible content changes (or first opens), not continuously.
+  const [calloutRefreshPulse, setCalloutRefreshPulse] = useState(false);
+  useEffect(() => {
+    if (!selectedBusName) return;
+    setCalloutRefreshPulse(true);
+    const id = setTimeout(() => setCalloutRefreshPulse(false), 100);
+    return () => clearTimeout(id);
+  }, [selectedBusName, busSheetStats]);
+
   // ── timepoint hold countdown ───────────────────────────────────────────────
 
   // A bus is "holding" at the selected stop if /buses says so for it — see
@@ -1747,7 +1763,7 @@ export default function MapScreen() {
             key={`${selectedBus.name}-callout`}
             coordinate={(busRegionsRef.get(selectedBus.name) ?? { latitude: selectedBus.lat, longitude: selectedBus.lon }) as any}
             anchor={{ x: 0.5, y: 1 }}
-            tracksViewChanges
+            tracksViewChanges={calloutRefreshPulse}
             tappable={false}
             zIndex={4}
           >
