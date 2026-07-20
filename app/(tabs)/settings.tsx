@@ -108,7 +108,7 @@ export default function MoreScreen() {
       </TouchableOpacity>
 
       <View style={styles.footer}>
-        <Text style={[styles.footerText, { color: c.textSecondary }]}>TAMU Bus Tracker</Text>
+        <Text style={[styles.footerText, { color: c.textSecondary }]}>Century Tree Transit</Text>
       </View>
     </SafeAreaView>
   );

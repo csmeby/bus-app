@@ -438,6 +438,16 @@ export default function MapScreen() {
   const stopReqIdRef = useRef(0);
   const expandedReqIdRef = useRef(0);
   const mapRef = useRef<MapView>(null);
+  // Markers/polylines are gated on this instead of mounting the instant this
+  // component does. Without it, the very first `/buses` response (often
+  // 20-40 buses, 2 markers each — icon + heading arrow — mounting in one
+  // React commit) can land before the native map view's own shadow tree has
+  // finished initializing, racing react-native-maps' Fabric mounting
+  // instructions against the map's own setup. Matches the observed
+  // "insertObject:atIndex: index N beyond bounds" native crash (a mounting
+  // instruction batch sized for a tree that doesn't exist yet) and its
+  // "random" flakiness (a timing race, not a deterministic bug) exactly.
+  const [mapReady, setMapReady] = useState(false);
 
   const [holdTick, setHoldTick] = useState(() => Date.now());
 
@@ -1452,7 +1462,11 @@ export default function MapScreen() {
         onPress={() => {
           if (selectedBusName) closeBusCallout();
         }}
+        onMapReady={() => setMapReady(true)}
       >
+        {/* Nothing below mounts until the native map view itself is ready —
+            see mapReady above for why. */}
+        {mapReady && <>
         {/* Always render ALL polylines; use transparent color for inactive routes
             to prevent the native layer from retaining ghost polylines. */}
         {Object.entries(routeLines).flatMap(([route, dirs]) => {
@@ -1623,16 +1637,24 @@ export default function MapScreen() {
               key={bus.name}
               coordinate={region as any}
               anchor={{ x: 0.5, y: 0.5 }}
-              // REVERTED to false (tried always-true same day — made things
-              // worse: the bus went from "sometimes disappears, recovers" to
-              // "disappears and stays gone permanently" on the 04). Confirmed
-              // via debug logs that the bus's own JS state/region are fine
-              // when it vanishes, and confirmed the bug is 04-only (the only
-              // route whose reroute-overlay Polylines actually render any
-              // geometry — see below) — so the trigger is the reroute
-              // overlay's prop churn on direction toggle, not this marker's
-              // own tracking mode. Leave this frozen; fix the actual trigger.
-              tracksViewChanges={false}
+              // Was hard-frozen false; that means this marker snapshots its
+              // content exactly once at mount, and if that first snapshot
+              // races the child View's layout (same mount-time race already
+              // documented for stop markers and the old heading-arrow
+              // children), the marker permanently falls back to the default
+              // red pin instead of the bus icon — exactly what showed up as
+              // "bus icons missing, only the direction arrow shows" (the
+              // heading arrow is a separate, image-based marker that isn't
+              // affected by this race). Sharing headingRefreshPulse (same
+              // per-poll pulse the heading arrows and callout already use)
+              // lets a failed snapshot self-heal on the next poll instead of
+              // staying broken for the rest of the session. NOT the same as
+              // the old always-true attempt this comment used to warn
+              // against — that was continuous, not pulsed, and the
+              // disappearing-bus symptom it caused was later traced to a
+              // reroute-polyline zIndex tie (fixed below), not to
+              // tracksViewChanges itself.
+              tracksViewChanges={headingRefreshPulse}
               // Must beat every polyline's zIndex, including the rerouted
               // solid overlay (max 3, see the reroute-overlay block above) —
               // a tie there let the platform's stacking order win, which on
@@ -1840,6 +1862,7 @@ export default function MapScreen() {
             </View>
           </Marker.Animated>
         )}
+        </>}
       </MapView>
 
       {/* ── Floating panel ────────────────────────────────────────────────── */}
