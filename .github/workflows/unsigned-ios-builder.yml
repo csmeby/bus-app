@@ -21,11 +21,20 @@ jobs:
         run: npm ci
 
       - name: Prebuild native iOS project
-        run: npx expo prebuild --platform ios
+        run: npx expo prebuild --platform ios --no-install
+
+      - name: Install CocoaPods dependencies
+        working-directory: ios
+        run: |
+          gem list cocoapods -i || sudo gem install cocoapods
+          pod --version
+          pod install --repo-update
+          ls -la
 
       - name: Build unsigned .app
         working-directory: ios
         run: |
+          ls -la
           WORKSPACE=$(ls -d *.xcworkspace | head -n1)
           SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list | awk '/Schemes:/{flag=1;next}/^$/{flag=0}flag' | xargs)
           echo "Using workspace $WORKSPACE, scheme $SCHEME"
