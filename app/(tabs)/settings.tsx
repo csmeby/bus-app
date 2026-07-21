@@ -73,7 +73,7 @@ export default function MoreScreen() {
         <View style={styles.row}>
           <MaterialIcons name="badge" size={22} color={c.tint} style={styles.rowIcon} />
           <View style={styles.rowText}>
-            <Text style={[styles.rowLabel, { color: c.text }]}>Unit Codes</Text>
+            <Text style={[styles.rowLabel, { color: c.text }]}>Unit Codes <Text style={{ color: c.tint }}>(Experimental)</Text></Text>
             <Text style={[styles.rowDesc, { color: c.textSecondary }]}>
               Shows each unit&apos;s letter code (Alpha, Bravo, ...).
             </Text>

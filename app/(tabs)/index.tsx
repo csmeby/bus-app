@@ -354,6 +354,22 @@ export default function MapScreen() {
   // every heading marker together, once per poll, then back to false — shared
   // state for a refresh that's shared across many markers, per the lesson above.
   const [headingRefreshPulse, setHeadingRefreshPulse] = useState(false);
+  // StopMarker's own onLayout+rAF-delayed snapshot (see that component) is a
+  // single attempt per stop — if it still loses the race under real load
+  // (hundreds of stops mounting together with "all routes" selected), that
+  // marker is stuck on the default red pin for the rest of the session, with
+  // no way to recover. This is the same shared-pulse safety net as
+  // headingRefreshPulse, just on its own timer instead of tied to a poll
+  // (stops have no natural per-poll cadence) — an occasional extra chance
+  // for any marker that missed its first snapshot to self-heal.
+  const [stopRefreshPulse, setStopRefreshPulse] = useState(false);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setStopRefreshPulse(true);
+      setTimeout(() => setStopRefreshPulse(false), 400);
+    }, 20000);
+    return () => clearInterval(id);
+  }, []);
   // One AnimatedRegion per bus (keyed by name), reused across polls so a
   // position update glides there instead of snapping — created lazily during
   // render (so it exists from the very first frame a bus appears, before the
@@ -1004,8 +1020,13 @@ export default function MapScreen() {
         setBuses(data.map(b => ({ ...b, directionKey: b.directionKey?.toLowerCase() })));
         // Nudge every heading marker to re-snapshot its (possibly changed)
         // image together, once per poll — see headingRefreshPulse above.
+        // 100ms wasn't enough window for the native snapshot to reliably
+        // finish before flipping back to false, especially with several
+        // markers redrawing in the same window — a marker that missed the
+        // window stayed stuck on the default red pin until the next poll's
+        // pulse, so this widened to 400ms to make that miss far less likely.
         setHeadingRefreshPulse(true);
-        setTimeout(() => setHeadingRefreshPulse(false), 100);
+        setTimeout(() => setHeadingRefreshPulse(false), 550);
       } catch (e) {
         console.warn('Bus fetch failed:', e);
       }
@@ -1507,7 +1528,18 @@ export default function MapScreen() {
             return (
               <Polyline
                 key={`line-${route}-${dirKey}`}
-                coordinates={path}
+                // A fresh array reference each render (not the raw `path`
+                // straight from routeLines state, which stays the same
+                // object across many renders) — react-native-maps/Fabric
+                // sometimes drops a strokeColor/strokeWidth-only prop update
+                // when `coordinates` hasn't changed reference, leaving a
+                // toggled-on route invisible (stops show, line doesn't) until
+                // something forces a fuller re-diff. Closing and reopening
+                // the route was two more of the exact same style-only
+                // updates, so "sometimes" landing matches a diffing race,
+                // not a logic bug. Cloning is cheap at this point count even
+                // with every route's polyline re-rendering on each bus poll.
+                coordinates={[...path]}
                 strokeColor={strokeColor}
                 strokeWidth={isActive && isSelectedDir ? 5 : isActive ? 3.5 : 0}
                 zIndex={isActive && isSelectedDir ? 2 : isActive ? 1 : 0}
@@ -1626,6 +1658,9 @@ export default function MapScreen() {
             !!staleRouteMap[bus.route] ||
             bus.directionKey == null ||
             isSelectedDirection(bus.route, bus.directionKey, bus.direction, effectiveDirByRoute[bus.route]);
+          // Shared by this bus's icon, heading arrow, and (if open) its callout
+          // below, so a position update glides all of them together instead of
+          // each independently snapping to the new point.
           const busFillColor = isBusSelectedDir ? color : dimColor(color);
           // Shared by this bus's icon, heading arrow, and (if open) its callout
           // below, so a position update glides all of them together instead of
@@ -1642,18 +1677,10 @@ export default function MapScreen() {
               // races the child View's layout (same mount-time race already
               // documented for stop markers and the old heading-arrow
               // children), the marker permanently falls back to the default
-              // red pin instead of the bus icon — exactly what showed up as
-              // "bus icons missing, only the direction arrow shows" (the
-              // heading arrow is a separate, image-based marker that isn't
-              // affected by this race). Sharing headingRefreshPulse (same
-              // per-poll pulse the heading arrows and callout already use)
-              // lets a failed snapshot self-heal on the next poll instead of
-              // staying broken for the rest of the session. NOT the same as
-              // the old always-true attempt this comment used to warn
-              // against — that was continuous, not pulsed, and the
-              // disappearing-bus symptom it caused was later traced to a
-              // reroute-polyline zIndex tie (fixed below), not to
-              // tracksViewChanges itself.
+              // red pin instead of the bus icon. Sharing headingRefreshPulse
+              // (same per-poll pulse the heading arrows and callout already
+              // use) lets a failed snapshot self-heal on the next poll
+              // instead of staying broken for the rest of the session.
               tracksViewChanges={headingRefreshPulse}
               // Must beat every polyline's zIndex, including the rerouted
               // solid overlay (max 3, see the reroute-overlay block above) —
@@ -1704,74 +1731,22 @@ export default function MapScreen() {
             never adds/removes markers.
             Stops we've learned are closed (after tapping into their schedule)
             get dimmed with a red badge; we can't know this ahead of a tap
-            without querying every stop's schedule upfront. */}
-        {routeStops.map(stop => {
-          const isVisible = selectedRoutes.includes('all') || visibleStopCodes.has(stop.code);
-          const isClosed = closedStopCodes.has(stop.code);
-          // A stop an active reroute skips — dimmed like a closed stop but
-          // badged with an ✕ so it reads as "not served right now". Temp
-          // stops are excluded: they exist ONLY because of a reroute (that's
-          // what makes them temporary in the first place), so one going
-          // unserved again later is expected churn, not something worth
-          // flagging as "cancelled" the way a real numbered stop closing is.
-          const isUnserved = unservedStopCodes.has(stop.code) && !stop.isTemporary;
-          const isTimepoint = isStopTimepointForSelection(stop);
-          return (
-            <Marker
-              // isClosed/isUnserved arrive asynchronously (schedule lookup /
-              // reroute poll), after this marker's first paint. With
-              // tracksViewChanges={false} the native layer snapshots the
-              // marker's content exactly once and never re-measures it —
-              // so a badge that appears later gets tacked onto a bitmap
-              // whose anchor was already centered on the badge-less icon,
-              // which is what made the icon look shifted a few pixels from
-              // the badge instead of the badge sitting on its corner.
-              // Keying on the badge state forces a clean remount (fresh
-              // snapshot, correctly centered around icon+badge together)
-              // the moment either becomes true. Visibility is NOT part of
-              // this key — it's applied via opacity/tappable below so
-              // toggling it never remounts the marker.
-              key={`${stop.code}-${isClosed}-${isUnserved}`}
-              coordinate={stop.coordinate}
-              anchor={{ x: 0.5, y: 0.5 }}
-              tracksViewChanges={false}
-              opacity={isVisible ? 1 : 0}
-              tappable={isVisible}
-              zIndex={0}
-              onPress={() => isVisible && openStopPanel(stop)}
-            >
-              <View
-                accessible
-                accessibilityRole="button"
-                accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}${isUnserved ? ', not served right now due to a detour' : isClosed ? ', closed' : ''}`}
-                accessibilityHint="Shows departure times for this stop"
-              >
-                <Image
-                  source={stop.isTemporary
-                    ? require('../../assets/images/temp_stop.png')
-                    : isTimepoint
-                    ? require('../../assets/images/timepoint.png')
-                    : require('../../assets/images/stop.png')}
-                  style={[
-                    stop.isTemporary
-                      ? styles.tempStopIcon
-                      : isTimepoint
-                      ? styles.timepointIcon
-                      : styles.stopIcon,
-                    (isClosed || isUnserved) && styles.closedStopIcon,
-                  ]}
-                />
-                {isUnserved ? (
-                  <View style={styles.unservedStopBadge}>
-                    <Text style={styles.unservedStopBadgeText}>✕</Text>
-                  </View>
-                ) : isClosed ? (
-                  <View style={styles.closedStopBadge} />
-                ) : null}
-              </View>
-            </Marker>
-          );
-        })}
+            without querying every stop's schedule upfront.
+            Rendered via the StopMarker subcomponent below, which owns its
+            own `ready` state so tracksViewChanges only ever locks to false
+            AFTER its icon has actually laid out — see StopMarker for why. */}
+        {routeStops.map(stop => (
+          <StopMarker
+            key={stop.code}
+            stop={stop}
+            isVisible={selectedRoutes.includes('all') || visibleStopCodes.has(stop.code)}
+            isClosed={closedStopCodes.has(stop.code)}
+            isUnserved={unservedStopCodes.has(stop.code) && !stop.isTemporary}
+            isTimepoint={isStopTimepointForSelection(stop)}
+            onPress={() => openStopPanel(stop)}
+            refreshPulse={stopRefreshPulse}
+          />
+        ))}
 
         {/* Bus callout — a second plain Marker (not <Callout>) sharing the
             selected bus's coordinate, anchored so its bottom edge (the pointer
@@ -2345,6 +2320,105 @@ export default function MapScreen() {
   );
 }
 
+// ── sub-component: stop marker ──────────────────────────────────────────────
+//
+// tracksViewChanges used to be hard-frozen `false` inline on this Marker.
+// That tells MapKit/react-native-maps to snapshot the custom child View
+// exactly once, at mount, and never re-snapshot it. If that one snapshot
+// races the child View's own layout/paint (the same mount-time race already
+// documented and fixed for the bus icon and heading-arrow markers above —
+// see headingRefreshPulse), MapKit has nothing to rasterize and silently
+// substitutes its own default red drop-pin instead. Because
+// tracksViewChanges never flipped back to true, that marker was stuck
+// showing the stock pin for the rest of its mounted life — and worse, the
+// stock pin ignores the `opacity` prop this file relies on for hiding
+// deselected-route stops, so a stop that lost the race could show a full-
+// opacity red pin on a route that isn't even selected. This is the
+// "occasional default iPhone pin sitting on a closed route" symptom.
+//
+// Fix: this marker starts with tracksViewChanges=true and only locks to
+// false once its own child View has fired onLayout AND had a frame to
+// actually paint (requestAnimationFrame) — so the very first snapshot is
+// never taken before there's something real to snapshot. Kept as its own
+// component (not inlined in the big .map() below) so `ready` state lives
+// per-marker and isn't reset by re-renders of the parent, and the parent no
+// longer needs to key this marker on isClosed/isUnserved — those are just
+// props now, updated in place on the same mounted native view instead of
+// forcing a remount (and re-rolling the snapshot race) every time either
+// one changes.
+function StopMarker({
+  stop,
+  isVisible,
+  isClosed,
+  isUnserved,
+  isTimepoint,
+  onPress,
+  refreshPulse,
+}: {
+  stop: Stop;
+  isVisible: boolean;
+  isClosed: boolean;
+  isUnserved: boolean;
+  isTimepoint: boolean;
+  onPress: () => void;
+  refreshPulse: boolean;
+}) {
+  const [ready, setReady] = useState(false);
+
+  return (
+    <Marker
+      coordinate={stop.coordinate}
+      anchor={{ x: 0.5, y: 0.5 }}
+      // !ready covers the initial mount snapshot (see onLayout below); once
+      // ready, refreshPulse is the ongoing safety net — see
+      // stopRefreshPulse where it's defined for why the first attempt alone
+      // isn't enough.
+      tracksViewChanges={!ready || refreshPulse}
+      opacity={isVisible ? 1 : 0}
+      tappable={isVisible}
+      zIndex={0}
+      onPress={() => isVisible && onPress()}
+    >
+      <View
+        onLayout={() => {
+          // One more frame after layout so the Image has actually had a
+          // chance to paint before the snapshot locks in — onLayout alone
+          // fires as soon as dimensions are known, which can still be
+          // ahead of the image bitmap being ready to rasterize.
+          requestAnimationFrame(() => setReady(true));
+        }}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}${isUnserved ? ', not served right now due to a detour' : isClosed ? ', closed' : ''}`}
+        accessibilityHint="Shows departure times for this stop"
+      >
+        <Image
+          source={stop.isTemporary
+            ? require('../../assets/images/temp_stop.png')
+            : isTimepoint
+            ? require('../../assets/images/timepoint.png')
+            : require('../../assets/images/stop.png')}
+          style={[
+            stop.isTemporary
+              ? styles.tempStopIcon
+              : isTimepoint
+              ? styles.timepointIcon
+              : styles.stopIcon,
+            (isClosed || isUnserved) && styles.closedStopIcon,
+          ]}
+        />
+        {isUnserved ? (
+          <View style={styles.unservedStopBadge}>
+            <Text style={styles.unservedStopBadgeText}>✕</Text>
+          </View>
+        ) : isClosed ? (
+          <View style={styles.closedStopBadge} />
+        ) : null}
+      </View>
+    </Marker>
+  );
+}
+
 // ── sub-component: time entry row ─────────────────────────────────────────────
 
 function TimeEntryRow({ item, routeColors, c, onPress }: { item: TimeEntry; routeColors: Record<string, string>; c: any; onPress: () => void }) {
@@ -2431,10 +2505,6 @@ function TimeEntryRow({ item, routeColors, c, onPress }: { item: TimeEntry; rout
 const styles = StyleSheet.create({
   root: { flex: 1 },
 
-  // bus.png is a perfect square with the circle touching its own edge (no
-  // padding), unlike stop.png (a tall 720x1080 pin that ends up ~17px wide once
-  // `contain`-fit into its 26x26 box) — so the bus needs a noticeably smaller
-  // box than the stop's nominal size to actually read as similarly sized.
   busIcon: { width: 24, height: 24, resizeMode: 'contain' },
   busMarkerWrap: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   busCircleFill: { position: 'absolute', width: 20, height: 20, borderRadius: 10 },
