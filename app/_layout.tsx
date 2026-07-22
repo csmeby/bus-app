@@ -27,7 +27,7 @@ function RootLayoutInner() {
         <Stack.Screen name="(btd)" options={{ headerShown: false }} />
         <Stack.Screen name="theme" options={{ headerShown: false }} />
         <Stack.Screen name="favorites" options={{ headerShown: false }} />
-        <Stack.Screen name="disruptions" options={{ headerShown: false, animation: 'fade', animationDuration: 150 }} />
+        <Stack.Screen name="disruptions" options={{ headerShown: false }} />
         <Stack.Screen name="help" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ headerShown: false }} />
       </Stack>
