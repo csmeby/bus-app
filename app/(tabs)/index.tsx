@@ -14,7 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { AnimatedRegion, Marker, Polyline } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
@@ -284,6 +284,14 @@ type RouteInfo = {
   directions: { key: string; name: string }[];
 };
 
+// Which "half" of a route a direction_key belongs to — sourced from the
+// bundled/live pattern's own object key ("inbound"/"outbound"/"pattern_N"),
+// NOT from the live /routes API's display name, which isn't consistently
+// "Inbound"/"Outbound" text (e.g. route 03's directions are named "to White
+// Creek" / "to MSC"). 'circulator' covers the routes with only one pattern
+// (loops with no inbound/outbound distinction at all).
+type DirKind = 'inbound' | 'outbound' | 'circulator';
+
 type DepartureTime = {
   time: string;
   isEstimated: boolean;
@@ -345,23 +353,14 @@ export default function MapScreen() {
   }, []);
 
   const [buses, setBuses] = useState<any[]>([]);
-  // Heading-arrow markers use the `image` prop (not children) to stay churn-free
-  // (see HEADING_ARROW_IMAGES above), but react-native-maps on iOS doesn't
-  // reliably repaint a Marker's native icon when `image` changes on an already-
-  // mounted marker — it needs tracksViewChanges nudged to force a re-snapshot.
-  // A per-bus key/tracksViewChanges toggle would be the same mass-remount crash
-  // already hit for these routes; instead this pulses tracksViewChanges true for
-  // every heading marker together, once per poll, then back to false — shared
-  // state for a refresh that's shared across many markers, per the lesson above.
-  const [headingRefreshPulse, setHeadingRefreshPulse] = useState(false);
   // StopMarker's own onLayout+rAF-delayed snapshot (see that component) is a
   // single attempt per stop — if it still loses the race under real load
   // (hundreds of stops mounting together with "all routes" selected), that
   // marker is stuck on the default red pin for the rest of the session, with
-  // no way to recover. This is the same shared-pulse safety net as
-  // headingRefreshPulse, just on its own timer instead of tied to a poll
-  // (stops have no natural per-poll cadence) — an occasional extra chance
-  // for any marker that missed its first snapshot to self-heal.
+  // no way to recover. This pulses tracksViewChanges true for every stop
+  // marker together, once on its own timer (stops have no natural per-poll
+  // cadence) — an occasional extra chance for any marker that missed its
+  // first snapshot to self-heal.
   const [stopRefreshPulse, setStopRefreshPulse] = useState(false);
   useEffect(() => {
     const id = setInterval(() => {
@@ -370,39 +369,24 @@ export default function MapScreen() {
     }, 20000);
     return () => clearInterval(id);
   }, []);
-  // One AnimatedRegion per bus (keyed by name), reused across polls so a
-  // position update glides there instead of snapping — created lazily during
-  // render (so it exists from the very first frame a bus appears, before the
-  // animate-on-update effect below has even run) and shared read-only by the
-  // bus icon, its heading arrow, and its callout, so all three move in sync.
-  const busRegionsRef = useRef<Map<string, InstanceType<typeof AnimatedRegion>>>(new Map()).current;
-  // Buses whose route is deselected are "parked" here (far off-map) instead
-  // of being hidden via the Marker `opacity` prop or unmounted:
-  //  - opacity on Marker.Animated didn't apply on-device (buses never
-  //    reappeared — see the dedupedBuses comment below), and
-  //  - mount/unmount churn on route toggle is this app's documented native
-  //    crash trigger, confirmed twice now (crash came back the same day the
-  //    filtered-array mounting was reinstated).
-  // Moving the marker via its AnimatedRegion is the ONE mechanism these
-  // markers demonstrably support (it's how the position glide works), so
-  // visibility rides on it too.
-  const PARKED_REGION = { latitude: 0, longitude: 0, latitudeDelta: 0, longitudeDelta: 0 };
-  // Bus names currently un-parked (their route is selected) — lets the
-  // position effect below distinguish "just became visible → snap into
-  // place" from "already visible → glide".
-  const shownBusesRef = useRef<Set<string>>(new Set()).current;
-  const getBusRegion = useCallback((bus: any, visible: boolean) => {
-    let region = busRegionsRef.get(bus.name);
-    if (!region) {
-      region = new AnimatedRegion(visible
-        ? { latitude: bus.lat, longitude: bus.lon, latitudeDelta: 0, longitudeDelta: 0 }
-        : PARKED_REGION);
-      busRegionsRef.set(bus.name, region);
-    }
-    return region;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busRegionsRef]);
+  
+  // Buses are plain Markers with a direct coordinate prop (see the
+  // BusMarker/BusHeadingMarker components below), NOT Marker.Animated +
+  // AnimatedRegion — that combination was tried two different ways (parking
+  // hidden buses at (0,0), then hiding via the `opacity` prop instead) and
+  // BOTH failed to reliably show a bus again after a route switch, even
+  // though debug logging proved the underlying coordinate value was always
+  // correct. Marker.Animated's opacity handling is the same failure this
+  // codebase already documented once before for a different reason
+  // (parking) — confirmed a second time now, independently, so it's not an
+  // isolated fluke. Plain Marker (stops) reliably honors both opacity and
+  // prop updates, so buses now use it too, same foundation. Cost: buses
+  // snap to each new poll position instead of gliding smoothly between them
+  // — no AnimatedRegion means no glide animation. Correctness over that
+  // nicety.
   const [routeLines, setRouteLines] = useState<Record<string, Record<string, { latitude: number; longitude: number }[]>>>({});
+  // route -> dirKey -> inbound/outbound/circulator, see DirKind above.
+  const [routeDirKinds, setRouteDirKinds] = useState<Record<string, Record<string, DirKind>>>({});
   const [stops, setStops] = useState<Stop[]>([]);
   // Backing store for `stops`, persisted across every applyPatterns() call
   // this session — see the comment inside applyPatterns for why this can't
@@ -425,10 +409,23 @@ export default function MapScreen() {
   // reroutes, closures, etc) — shown as a warning badge in the route picker.
   const [disruptedRoutes, setDisruptedRoutes] = useState<Set<string>>(new Set());
 
-  const [selectedRoutes, setSelectedRoutes] = useState<string[]>([]);
-  // route -> selected direction_key (UUID, or synthetic pattern_N fallback)
-  const [routeDirections, setRouteDirections] = useState<Record<string, string>>({});
-  const [dropdownVisible, setDropdownVisible] = useState(false);
+  // Routes the user has chosen to see on the map. Starts empty on every
+  // launch — nothing is drawn until the rider actively picks a route.
+  const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set());
+  const [routePickerOpen, setRoutePickerOpen] = useState(false);
+  // Normally 'slide' (the sheet's own open/close animation). Forced to
+  // 'none' for the one instant right before navigating to the disruptions
+  // screen — closing the modal via its usual slide-down WHILE the stack
+  // push transition also plays made that tap feel like two animations
+  // stacked back to back instead of one. Reset to 'slide' every time the
+  // picker is (re)opened so its normal dismiss (✕/backdrop tap) is unaffected.
+  const [routePickerAnimation, setRoutePickerAnimation] = useState<'slide' | 'none'>('slide');
+  // route -> the dirKey the rider has explicitly picked as "full strength"
+  // for that route. Unset falls back to whichever pattern is labeled
+  // 'inbound' (see routeDirKinds / getPrimaryDir) — the rider can flip it
+  // per route since that label isn't always the real-world correct side
+  // (see the DirKind comment above).
+  const [routePrimaryDir, setRoutePrimaryDir] = useState<Record<string, string>>({});
 
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
   const [stopTimes, setStopTimes] = useState<TimeEntry[]>([]);
@@ -487,22 +484,6 @@ export default function MapScreen() {
 
   // ── route helpers ──────────────────────────────────────────────────────────
 
-  const toggleRoute = (route: string) => {
-    if (animateTimeoutRef.current) {
-      clearTimeout(animateTimeoutRef.current);
-      animateTimeoutRef.current = null;
-    }
-    
-    if (route === 'all') {
-      setSelectedRoutes(prev => (prev.includes('all') ? [] : ['all']));
-      return;
-    }
-    setSelectedRoutes(prev => {
-      const next = prev.filter(r => r !== 'all');
-      return next.includes(route) ? next.filter(r => r !== route) : [...next, route];
-    });
-  };
-
   // route -> true when the live /routes API direction UUIDs don't match any of
   // the bundled polyline keys — i.e. routes_patterns.json is from a previous
   // semester. When stale, direction-based filtering is fully disabled so the
@@ -523,19 +504,28 @@ export default function MapScreen() {
     return m;
   }, [routeInfo, routeLines]);
 
-  // Stores the raw API direction key from the direction button. Button
-  // highlighting and bus comparisons both use API keys, so no mapping needed.
-  const setRouteDir = (route: string, apiKey: string) =>
-    setRouteDirections(prev => ({ ...prev, [route]: apiKey }));
+  // Which of a route's (at most two) dirKeys currently renders at full
+  // strength: the rider's explicit pick (routePrimaryDir) if it's still a
+  // real key for this route, else whichever pattern paths.py labeled
+  // 'inbound', else just the first key. undefined for a route with no
+  // patterns loaded yet.
+  const getPrimaryDir = useCallback((route: string): string | undefined => {
+    const keys = Object.keys(routeLines[route] ?? {});
+    if (keys.length === 0) return undefined;
+    const picked = routePrimaryDir[route];
+    if (picked && keys.includes(picked)) return picked;
+    return keys.find(k => routeDirKinds[route]?.[k] === 'inbound') ?? keys[0];
+  }, [routeLines, routeDirKinds, routePrimaryDir]);
+
+  const setRouteDirection = useCallback((route: string, dirKey: string) => {
+    setRoutePrimaryDir(prev => ({ ...prev, [route]: dirKey }));
+  }, []);
 
   // A shared stop can be a timepoint for one route and not another (see
   // paths.py's TIMEPOINT_ROUTE_EXCLUSIONS), so this depends on which route(s)
   // are actually in view rather than being a fixed property of the stop.
   const isStopTimepointForSelection = (stop: Stop): boolean => {
-    if (selectedRoutes.includes('all')) {
-      return stop.routes.some(r => stop.timepointRoutes[r]);
-    }
-    return stop.routes.some(r => selectedRoutes.includes(r) && stop.timepointRoutes[r]);
+    return stop.routes.some(r => selectedRoutes.has(r) && stop.timepointRoutes[r]);
   };
 
   // ── derived ────────────────────────────────────────────────────────────────
@@ -546,192 +536,78 @@ export default function MapScreen() {
     return m;
   }, [routeInfo]);
 
-  // Which polyline key counts as "the selected direction" for each route:
-  // the user's explicit pick if it matches an actual polyline, else the
-  // first polyline key. Shared by the regular route polylines AND the
-  // reroute overlay below — a route with an active reroute on BOTH
-  // directions (e.g. a two-way construction detour) used to render both
-  // overlay pairs unconditionally at full strength, ignoring the direction
-  // toggle entirely (it only ever affected the regular polylines, which
-  // are hidden either way once a direction is rerouted) — so toggling
-  // direction visibly did nothing. Using the same effectiveDir for both
-  // means whichever direction is selected is the only one bold, rerouted
-  // or not.
-  const effectiveDirByRoute = useMemo(() => {
-    const m: Record<string, string> = {};
-    Object.entries(routeLines).forEach(([route, dirs]) => {
-      const userPick = routeDirections[route];
-      m[route] = (userPick && dirs[userPick]) ? userPick : Object.keys(dirs)[0];
+  // /buses can carry duplicate entries for the same physical bus (seen
+  // across overlapping direction groups) — collapse to one marker per name.
+  const dedupedBuses = useMemo(() => {
+    const m = new Map<string, any>();
+    buses.forEach(b => { if (b?.name) m.set(b.name, b); });
+    return Array.from(m.values());
+  }, [buses]);
+
+  // Per-bus visibility/opacity for the current route selection: hidden
+  // entirely if its route isn't selected, full opacity if it's on the
+  // route's primary direction (or a circulator/stale route with no reliable
+  // direction split), a bit translucent if it's on the other direction —
+  // same treatment as the route polylines below, and the same rider-picked
+  // "primary" (see getPrimaryDir/routePrimaryDir).
+  const busDisplayInfo = useMemo(() => {
+    const m = new Map<string, { visible: boolean; opacity: number }>();
+    dedupedBuses.forEach(bus => {
+      if (!selectedRoutes.has(bus.route)) {
+        m.set(bus.name, { visible: false, opacity: 0 });
+        return;
+      }
+      const stale = !!staleRouteMap[bus.route];
+      const kind = routeDirKinds[bus.route]?.[bus.directionKey] ?? 'circulator';
+      const primary = getPrimaryDir(bus.route);
+      const isSecondary = !stale && kind !== 'circulator' && bus.directionKey !== primary;
+      m.set(bus.name, { visible: true, opacity: isSecondary ? 0.55 : 1 });
     });
     return m;
-  }, [routeLines, routeDirections]);
+  }, [dedupedBuses, selectedRoutes, staleRouteMap, routeDirKinds, getPrimaryDir]);
 
-  // Direction NAME the user currently has selected for a route (explicit
-  // pick, else the route's first direction) — sourced from routeInfo
-  // (/routes), independently of routeLines/reroutes' own direction-key
-  // namespaces. AggieSpirit doesn't just reissue directionKeys once a
-  // semester (the assumption effectiveDirByRoute above was built under) —
-  // confirmed 2026-07-15 that an actively-rerouted route's key can rotate
-  // to a brand new UUID on every single 5-minute reroute-watch poll while
-  // the detour is still active. A reroute overlay's live `dk` therefore
-  // routinely does NOT equal effectiveDirByRoute[route] (a snapshot from a
-  // separately-polled, less-frequently-refreshed source) even when it's
-  // genuinely the same physical direction — which silently hid the dashed
-  // baseline line and the unserved-stop badges on exactly the routes this
-  // whole feature exists for. Direction NAMES ("to MSC", "Northbound") stay
-  // stable across that churn, so matching on name is the robust check;
-  // see isSelectedDirection below.
-  const selectedDirNameByRoute = useMemo(() => {
-    const m: Record<string, string | undefined> = {};
-    Object.entries(routeInfo).forEach(([route, info]) => {
-      const key = routeDirections[route] ?? info.directions[0]?.key;
-      m[route] = info.directions.find(d => d.key === key)?.name;
-    });
-    return m;
-  }, [routeInfo, routeDirections]);
+  // Count for the "N active" badge — only buses currently shown on the map.
+  const visibleBusCount = useMemo(
+    () => dedupedBuses.filter(b => busDisplayInfo.get(b.name)?.visible).length,
+    [dedupedBuses, busDisplayInfo]
+  );
 
-  // True when `dk` (a reroute/polyline direction key) is the direction the
-  // user currently has selected for `route`. Prefers matching by direction
-  // NAME (stable across a directionKey rotation — see
-  // selectedDirNameByRoute above); falls back to raw key equality only when
-  // a name isn't available on either side, so missing data never silently
-  // starts hiding something that used to show.
-  const isSelectedDirection = useCallback((route: string, dk: string, dkName: string | undefined, fallbackKey: string | undefined) => {
-    const selName = selectedDirNameByRoute[route];
-    if (selName && dkName) return selName.trim().toLowerCase() === dkName.trim().toLowerCase();
-    return dk === fallbackKey;
-  }, [selectedDirNameByRoute]);
-
-  // Stops skipped by an active reroute on ANY route — deliberately NOT
-  // filtered by selectedRoutes. This set feeds the stop markers' React keys
-  // (badge state is baked into the key, see the marker comment below), so
-  // making it selection-dependent meant toggling a route flipped isUnserved
-  // and force-remounted a batch of markers at the exact moment the user
-  // opened/closed a route — the same native add/remove churn this file's
-  // polyline comments identify as the Android ghost/crash trigger. A stop of
-  // an unselected route is hidden via opacity anyway, so the extra codes here
-  // are invisible until their route is selected.
-  const unservedStopCodes = useMemo(() => {
+  // Stop codes an active reroute on a currently-selected route is skipping
+  // right now — by definition these are MISSING from that route's live
+  // pattern (reroute_watch.py computes unservedStops server-side the same
+  // way), so they'd otherwise vanish from the map the moment the detour
+  // starts. Scoped to selectedRoutes so an unrelated route's closure
+  // doesn't badge a stop nobody's currently looking at.
+  const unservedStopCodesForSelection = useMemo(() => {
     const s = new Set<string>();
-    Object.values(reroutes).forEach(dirs => {
+    Object.entries(reroutes).forEach(([route, dirs]) => {
+      if (!selectedRoutes.has(route)) return;
       Object.values(dirs).forEach(d => (d.unservedStops ?? []).forEach(code => s.add(code)));
     });
     return s;
-  }, [reroutes]);
+  }, [reroutes, selectedRoutes]);
 
-  // EVERY bus in the feed stays mounted, deduped by name (a bus can appear
-  // in multiple routes' API responses via extra trips). Route selection must
-  // NOT filter this render array: both filtered variants crashed on route
-  // toggle (2026-07-13 and again 2026-07-14 — mass Marker.Animated
-  // mount/unmount is this app's documented native crash trigger, and adding
-  // a synchronous glide-stop before the selection change didn't save it).
-  // The always-mounted version was crash-free, but its `opacity`-prop hiding
-  // never displayed buses on individually-selected routes on-device — so
-  // visibility is now handled by PARKING hidden buses' AnimatedRegions
-  // off-map instead (see getBusRegion / the position effect below), which
-  // needs no mount churn and no opacity prop at all.
-  const dedupedBuses = useMemo(() => {
-    const seen = new Set<string>();
-    return buses.filter(b => { if (seen.has(b.name)) return false; seen.add(b.name); return true; });
-  }, [buses]);
-
-  // Count for the "N active" badge — only buses on currently-selected routes.
-  const visibleBusCount = useMemo(() => {
-    if (selectedRoutes.includes('all')) return dedupedBuses.length;
-    return dedupedBuses.filter(b => selectedRoutes.includes(b.route)).length;
-  }, [dedupedBuses, selectedRoutes]);
-
-  // Stops belonging to a currently-selected route (or flagged unserved by
-  // any active reroute — selection-independent so the set doesn't churn on
-  // route toggle; see unservedStopCodes) — the bounded set of markers that
-  // stay mounted.
-  // This only changes when the user (de)selects a ROUTE, not when they flip
-  // direction, which is what actually matters: switching direction used to
-  // swing a batch of markers in/out of the render array (native add/remove
-  // churn — the same thing this file's polyline comments flag as the cause
-  // of ghosted overlays on Android), so direction-only visibility is instead
-  // applied as opacity within this already-mounted set (see visibleStopCodes
-  // below). Mounting literally every stop in the system regardless of route
-  // selection was tried first and made things worse (crashes, stops not all
-  // rendering) — too many simultaneous native marker views — so this stays
-  // scoped to selected routes like the original filteredStops did.
-  const routeStops = useMemo(() => {
-    if (selectedRoutes.includes('all')) return stops;
-    return stops.filter(stop =>
-      unservedStopCodes.has(stop.code) || stop.routes.some(r => selectedRoutes.includes(r)));
-  }, [stops, selectedRoutes, unservedStopCodes]);
-
-  // Of routeStops, which should render at full opacity for the current
-  // direction pick — the part that's allowed to change on every direction
-  // toggle without unmounting anything, since routeStops itself doesn't.
-  const visibleStopCodes = useMemo(() => {
-    // Invert reroutes once into route -> stopCode -> [dirKeys skipping it],
-    // instead of re-scanning every reroute entry for every stop×route pair.
-    const unservedDirsByRoute: Record<string, Record<string, string[]>> = {};
-    Object.entries(reroutes).forEach(([route, dirs]) => {
-      const byStop: Record<string, string[]> = {};
-      Object.entries(dirs).forEach(([dk, info]) => {
-        (info.unservedStops ?? []).forEach(code => {
-          (byStop[code] ??= []).push(dk);
-        });
-      });
-      unservedDirsByRoute[route] = byStop;
-    });
-
-    const s = new Set<string>();
-    routeStops.forEach(stop => {
-      // Unserved-by-a-selected-route check runs BEFORE and INDEPENDENTLY of
-      // stop.routes membership below — not nested inside the `.some(r =>
-      // stop.routes...)` loop like it used to be. stop.routes only reflects
-      // which routes' LIVE, currently-undetoured pattern has actually been
-      // observed carrying this stop; a stop a detour skips entirely means
-      // ITS OWN route's live pattern never includes it while detoured, so
-      // that route never gets linked into stop.routes at all — the stop is
-      // only known (has a coordinate) via whichever OTHER route's pattern
-      // happened to still carry it (e.g. route 04's "The Gardens" (0410) is
-      // currently known only via "01-04"'s still-normal pattern while 04
-      // itself is detoured around it — "04" was never in this stop's
-      // .routes, so the old nested check could never reach it and the
-      // unserved badge silently never showed for a selected-but-unlinked
-      // route). The server's reroute payload is authoritative on "which
-      // route currently skips this stop" regardless of that client-side
-      // linkage, so it's checked first, unconditionally.
-      const unservedBySelectedRoute = !stop.isTemporary && selectedRoutes.some(r => {
-        // Resolve direction from the reroute payload's own dirKey, not
-        // stop.dirKeys — stop.dirKeys is only ever refreshed by a LIVE poll
-        // actually containing this stop, which a currently-unserved stop by
-        // definition never is, so it's frozen at a possibly since-rotated
-        // value. Matched by direction NAME (see isSelectedDirection) — an
-        // actively-rerouted direction's key can rotate on every single
-        // reroute-watch poll (confirmed 2026-07-15), which made a raw
-        // effectiveDirByRoute[r] key-equality check miss almost every time.
-        const unservedDirs = unservedDirsByRoute[r]?.[stop.code] ?? [];
-        return unservedDirs.some(dk => isSelectedDirection(r, dk, reroutes[r]?.[dk]?.directionName, effectiveDirByRoute[r]));
-      });
-      if (unservedBySelectedRoute) {
-        s.add(stop.code);
-        return;
-      }
-
-      const show = stop.routes.some(r => {
-        if (!selectedRoutes.includes(r)) return false;
+  // Only stops on a currently-selected route's PRIMARY direction stay
+  // mounted — unlike buses (see busDisplayInfo above), filtering the array
+  // itself here is fine: stop markers mount/unmount without the native
+  // crash buses hit. A stop with no direction data for a route, or on a
+  // stale route (see staleRouteMap), always shows — there's nothing
+  // reliable to filter on. A stop currently unserved by an active reroute
+  // always shows too, regardless of direction, so the ✕ badge has
+  // somewhere to render.
+  const routeStops = useMemo(
+    () => stops.filter(stop => {
+      if (unservedStopCodesForSelection.has(stop.code)) return true;
+      return stop.routes.some(r => {
+        if (!selectedRoutes.has(r)) return false;
         const keys = stop.dirKeys[r] ?? [];
-        if (keys.length === 0) return true;    // no direction data — always show
-        if (staleRouteMap[r]) return true;     // can't trust direction mapping — show all
-        return keys.includes(effectiveDirByRoute[r]);
+        if (keys.length === 0 || staleRouteMap[r]) return true;
+        return keys.includes(getPrimaryDir(r) ?? '');
       });
-      if (show) s.add(stop.code);
-    });
-    return s;
-  }, [routeStops, selectedRoutes, effectiveDirByRoute, staleRouteMap, reroutes, isSelectedDirection]);
+    }),
+    [stops, selectedRoutes, staleRouteMap, getPrimaryDir, unservedStopCodesForSelection]
+  );
 
-  const routeLabel = selectedRoutes.includes('all')
-    ? 'All Routes'
-    : selectedRoutes.length === 0
-    ? 'Select Routes'
-    : selectedRoutes.length === 1
-    ? `Route ${selectedRoutes[0]}`
-    : `${selectedRoutes.length} routes`;
 
   // Favorited routes (set in Settings) float to the top; stable sort keeps
   // everything else in its original order.
@@ -742,6 +618,21 @@ export default function MapScreen() {
       return aFav - bFav;
     });
   }, [isFavorite]);
+
+  const routeSelectorLabel = useMemo(() => {
+    if (selectedRoutes.size === 0) return 'Select routes';
+    if (selectedRoutes.size === ALL_ROUTES.length) return 'All Routes';
+    if (selectedRoutes.size === 1) return `Route ${[...selectedRoutes][0]}`;
+    return `${selectedRoutes.size} routes selected`;
+  }, [selectedRoutes]);
+
+  const toggleRoute = useCallback((route: string) => {
+    setSelectedRoutes(prev => {
+      const next = new Set(prev);
+      if (next.has(route)) next.delete(route); else next.add(route);
+      return next;
+    });
+  }, []);
 
   // Active times list: real-time when stopDate is null, schedule otherwise
   const visibleStopTimes = useMemo(() => {
@@ -762,12 +653,9 @@ export default function MapScreen() {
         }))
       : raw;
 
-    const filtered = (showAllStopRoutes || selectedRoutes.includes('all'))
+    const filtered = (showAllStopRoutes)
       ? processed
-      : processed.filter(entry => {
-          const rn = entry.routeShortName ?? '';
-          return selectedRoutes.some(r => rn.startsWith(r) || r.startsWith(rn));
-        });
+      : processed;
     // Routes with no departures that day sink to the bottom instead of
     // cluttering the top with empty rows. Array.sort is stable, so routes
     // within each group (has times / no times) keep their original order.
@@ -776,77 +664,7 @@ export default function MapScreen() {
       const bEmpty = b.departureTimes.length === 0 ? 1 : 0;
       return aEmpty - bEmpty;
     });
-  }, [stopTimes, stopSchedule, stopDate, showAllStopRoutes, selectedRoutes]);
-
-  const selectedRouteBounds = useMemo(() => {
-    if (selectedRoutes.length === 0) return null;
-    
-    let minLat = Infinity, maxLat = -Infinity;
-    let minLng = Infinity, maxLng = -Infinity;
-    let hasCoords = false;
-
-    selectedRoutes.forEach(route => {
-      const dirs = routeLines[route];
-      if (!dirs) return;
-      
-      const effectiveDir = effectiveDirByRoute[route];
-      const coords = dirs[effectiveDir];
-      if (!coords || coords.length === 0) return;
-      
-      coords.forEach(({ latitude, longitude }) => {
-        minLat = Math.min(minLat, latitude);
-        maxLat = Math.max(maxLat, latitude);
-        minLng = Math.min(minLng, longitude);
-        maxLng = Math.max(maxLng, longitude);
-        hasCoords = true;
-      });
-    });
-
-    if (!hasCoords) return null;
-
-    const latPadding = (maxLat - minLat) * 0.15;
-    const lngPadding = (maxLng - minLng) * 0.15;
-
-    return {
-      latitude: (minLat + maxLat) / 2,
-      longitude: (minLng + maxLng) / 2,
-      latitudeDelta: (maxLat - minLat) + latPadding * 2,
-      longitudeDelta: (maxLng - minLng) + lngPadding * 2,
-    };
-  }, [selectedRoutes, routeLines, effectiveDirByRoute]);
-
-  // All Routes case
-  const allRoutesBounds = useMemo(() => {
-    if (!selectedRoutes.includes('all')) return null;
-    
-    let minLat = Infinity, maxLat = -Infinity;
-    let minLng = Infinity, maxLng = -Infinity;
-    let hasCoords = false;
-
-    Object.entries(routeLines).forEach(([route, dirs]) => {
-      const coords = Object.values(dirs).flat();
-      coords.forEach(({ latitude, longitude }) => {
-        minLat = Math.min(minLat, latitude);
-        maxLat = Math.max(maxLat, latitude);
-        minLng = Math.min(minLng, longitude);
-        maxLng = Math.max(maxLng, longitude);
-        hasCoords = true;
-      });
-    });
-
-    if (!hasCoords) return null;
-    
-    const latPadding = (maxLat - minLat) * 0.15;
-    const lngPadding = (maxLng - minLng) * 0.15;
-
-    return {
-      latitude: (minLat + maxLat) / 2,
-      longitude: (minLng + maxLng) / 2,
-      latitudeDelta: (maxLat - minLat) + latPadding * 2,
-      longitudeDelta: (maxLng - minLng) + lngPadding * 2,
-    };
-  }, [selectedRoutes, routeLines]);
-
+  }, [stopTimes, stopSchedule, stopDate, showAllStopRoutes]);
 
   // ── data loading ───────────────────────────────────────────────────────────
 
@@ -887,6 +705,7 @@ export default function MapScreen() {
 
   function applyPatterns(source: Record<string, any>) {
     const lines: Record<string, Record<string, { latitude: number; longitude: number }[]>> = {};
+    const kinds: Record<string, Record<string, DirKind>> = {};
     // Seeded from every stop ever merged in this session (bundled fallback,
     // then each live /route-patterns poll), NOT reset per call. A stop that's
     // currently CLOSED by a reroute is, by definition, missing from the live
@@ -917,13 +736,22 @@ export default function MapScreen() {
     Object.entries(source).forEach(([route, routeData]) => {
       const { patterns } = routeData as any;
       const routeDirs: Record<string, { latitude: number; longitude: number }[]> = {};
+      const routeKinds: Record<string, DirKind> = {};
 
       // Key by the real direction_key UUID (matches /routes live data) rather than
       // guessing "inbound"/"outbound" from the pattern name — those labels are just
       // an artifact of the order paths.py happened to receive patterns in and don't
       // reflect the route's actual direction names (e.g. route 03 is "to White Creek"
       // / "to MSC", not inbound/outbound at all).
-      Object.entries(patterns as Record<string, any>).forEach(([, pattern], idx) => {
+      //
+      // That said, the object key itself (paths.py's `labels = ["inbound",
+      // "outbound"]`, or "pattern_N" for a single-pattern circulator) is a
+      // stable, always-present binary split per route, even though it's
+      // arbitrary about which literal side of the road it lands on. It's the
+      // only per-route "which of the (at most) two patterns is this" signal
+      // available, so it's what drives the full-strength-vs-thinner styling
+      // — not a claim that it points the right way in the real world.
+      Object.entries(patterns as Record<string, any>).forEach(([patternKey, pattern], idx) => {
         if (!pattern.coordinates) return;
         const dirKey: string = (pattern.direction_key || `pattern_${idx}`).toLowerCase();
 
@@ -931,6 +759,8 @@ export default function MapScreen() {
           latitude: lat,
           longitude: lng,
         }));
+        const pk = patternKey.toLowerCase();
+        routeKinds[dirKey] = pk === 'inbound' ? 'inbound' : pk === 'outbound' ? 'outbound' : 'circulator';
 
         (pattern.stops as any[] | undefined)?.forEach((stop) => {
           if (!stop.lat || !stop.lng) return;
@@ -959,6 +789,7 @@ export default function MapScreen() {
       });
 
       lines[route] = routeDirs;
+      kinds[route] = routeKinds;
     });
 
     // Sweep temp stops this call no longer confirms — see seenTempCodes
@@ -970,6 +801,7 @@ export default function MapScreen() {
     }
 
     setRouteLines(lines);
+    setRouteDirKinds(kinds);
     setStops(Array.from(stopMap.values()));
   }
 
@@ -1012,28 +844,44 @@ export default function MapScreen() {
       .catch(() => {});
   }, []);
 
+  // Bus loading - completely rebuilt
   useEffect(() => {
-    async function fetchBuses() {
+    let isMounted = true;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const loadBuses = async () => {
       try {
         const res = await fetch(`${API_BASE}/buses`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: any[] = await res.json();
-        setBuses(data.map(b => ({ ...b, directionKey: b.directionKey?.toLowerCase() })));
-        // Nudge every heading marker to re-snapshot its (possibly changed)
-        // image together, once per poll — see headingRefreshPulse above.
-        // 100ms wasn't enough window for the native snapshot to reliably
-        // finish before flipping back to false, especially with several
-        // markers redrawing in the same window — a marker that missed the
-        // window stayed stuck on the default red pin until the next poll's
-        // pulse, so this widened to 400ms to make that miss far less likely.
-        setHeadingRefreshPulse(true);
-        setTimeout(() => setHeadingRefreshPulse(false), 550);
+
+        // Normalize direction keys
+        const normalizedData = data.map(b => ({
+          ...b,
+          directionKey: b.directionKey?.toLowerCase()
+        }));
+
+        if (isMounted) {
+          setBuses(normalizedData);
+        }
       } catch (e) {
         console.warn('Bus fetch failed:', e);
       }
-    }
-    fetchBuses();
-    const id = setInterval(fetchBuses, 10000);
-    return () => clearInterval(id);
+    };
+
+    // Initial load
+    loadBuses();
+
+    // Set up polling
+    intervalId = setInterval(loadBuses, 10000);
+
+    return () => {
+      isMounted = false;
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -1099,54 +947,20 @@ export default function MapScreen() {
     return () => clearInterval(id);
   }, []);
 
-  // Glide each bus's marker(s) to its new position over each poll rather than
-  // snapping there instantly. getBusRegion (called during render, below)
-  // already created/updated each region's CURRENT value for brand-new buses,
-  // so by the time this runs the region exists — this only needs to animate
-  // existing ones to wherever the bus has moved since the last poll.
-  useEffect(() => {
-    // Evict regions for buses gone from the feed — the map otherwise grows
-    // one AnimatedRegion per bus ever seen this session. Safe here: a bus
-    // missing from `buses` also just left dedupedBuses, so its markers were
-    // unmounted in the commit this effect runs after.
-    const liveNames = new Set(buses.map(b => b.name));
-    busRegionsRef.forEach((_, name) => {
-      if (!liveNames.has(name)) {
-        busRegionsRef.delete(name);
-        shownBusesRef.delete(name);
-      }
-    });
-    // Position/visibility driver: hidden buses park off-map, a bus whose
-    // route just got selected snaps straight into place (gliding there from
-    // the parking spot would streak it across the map), and an
-    // already-visible bus glides to its fresh poll position.
-    dedupedBuses.forEach(bus => {
-      const region = busRegionsRef.get(bus.name);
-      if (!region) return;
-      const visible = selectedRoutes.includes('all') || selectedRoutes.includes(bus.route);
-      if (!visible) {
-        if (shownBusesRef.has(bus.name)) {
-          shownBusesRef.delete(bus.name);
-          region.stopAnimation(() => {});
-          region.setValue(PARKED_REGION as any);
-        }
-      } else if (!shownBusesRef.has(bus.name)) {
-        shownBusesRef.add(bus.name);
-        region.stopAnimation(() => {});
-        region.setValue({ latitude: bus.lat, longitude: bus.lon, latitudeDelta: 0, longitudeDelta: 0 } as any);
-      } else {
-        region.timing({ latitude: bus.lat, longitude: bus.lon, duration: 900 } as any).start();
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buses, dedupedBuses, selectedRoutes, busRegionsRef, shownBusesRef]);
-
   // ── bus callout ────────────────────────────────────────────────────────────
 
   const closeBusCallout = useCallback(() => {
     setSelectedBusName(null);
     setBusSnapshot(null);
   }, []);
+
+  // Deselecting a bus's route hides its marker (see busDisplayInfo) — its
+  // callout shouldn't keep floating over a bus that's no longer shown.
+  useEffect(() => {
+    if (!selectedBusName) return;
+    const bus = buses.find(b => b.name === selectedBusName) ?? busSnapshot;
+    if (bus && !selectedRoutes.has(bus.route)) closeBusCallout();
+  }, [selectedRoutes, selectedBusName, buses, busSnapshot, closeBusCallout]);
 
   const openFleetInfo = useCallback((busName: string) => {
     setFleetInfoBus({ name: busName, info: findFleetInfo(busName) });
@@ -1199,9 +1013,7 @@ export default function MapScreen() {
     setStopTimesLoading(true);
     Animated.spring(stopPanelAnim, { toValue: 1, useNativeDriver: true, tension: 80, friction: 10 }).start();
 
-    const relevantRoutes = selectedRoutes.includes('all')
-      ? stop.routes
-      : stop.routes.filter(r => selectedRoutes.includes(r));
+    const relevantRoutes = stop.routes;
 
     // Only the direction(s) that actually serve this stop — querying every
     // direction of the route would include ones whose path never comes here
@@ -1236,7 +1048,7 @@ export default function MapScreen() {
       setStopTimesLoading(false);
       fetchStopSchedule(stop, toDateStr(new Date()));
     }
-  }, [stopPanelAnim, selectedRoutes, selectedBusName, closeBusCallout, fetchStopSchedule]);
+  }, [stopPanelAnim, selectedBusName, closeBusCallout, fetchStopSchedule]);
 
   // Tapping a route row to "see all times for the day": when browsing a
   // specific date (stopDate set), the row already came from the full-day
@@ -1335,17 +1147,6 @@ export default function MapScreen() {
     }
   }, [buses, selectedBusName]);
 
-  // Deselecting a route parks its bus markers off-map, but the snapshot
-  // fallback above keeps `selectedBus` truthy even without live data — so
-  // without this, an open callout would keep floating (over empty map, or
-  // over the parking spot) after its bus's route was toggled off.
-  useEffect(() => {
-    if (!selectedBusName || !busSnapshot) return;
-    if (!(selectedRoutes.includes('all') || selectedRoutes.includes(busSnapshot.route))) {
-      closeBusCallout();
-    }
-  }, [selectedRoutes, selectedBusName, busSnapshot, closeBusCallout]);
-
   const busSheetStats = useMemo(() => {
     if (!selectedBus) return null;
     const capacity = selectedBus.capacity > 0 ? selectedBus.capacity : 60;
@@ -1365,10 +1166,10 @@ export default function MapScreen() {
   // passengers/off-route/unit — updates live), but that means every re-render
   // while it's open forces react-native-maps to re-snapshot a marker with rich
   // children, which under this app's Fabric/New Architecture setup is the same
-  // native-mounting crash family already hit and fixed for the heading arrows
-  // (see headingRefreshPulse above) — just triggered by opening a callout
-  // instead of a bus poll. Same fix: pulse tracksViewChanges only when the
-  // callout's actual visible content changes (or first opens), not continuously.
+  // native-mounting crash family already hit and fixed elsewhere in this file
+  // — just triggered by opening a callout instead of a bus poll. Same fix:
+  // pulse tracksViewChanges only when the callout's actual visible content
+  // changes (or first opens), not continuously.
   const [calloutRefreshPulse, setCalloutRefreshPulse] = useState(false);
   useEffect(() => {
     if (!selectedBusName) return;
@@ -1397,43 +1198,6 @@ export default function MapScreen() {
     return () => clearInterval(id);
   }, [stopHoldBus]);
 
-  const previousSelectedRoutesRef = useRef<string[]>([]);
-  const animateTimeoutRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const prev = previousSelectedRoutesRef.current;
-    
-    // Check if selection actually changed
-    const changed = selectedRoutes.length !== prev.length || 
-      selectedRoutes.some(r => !prev.includes(r));
-    
-    if (changed) {
-      // Clear any pending animation
-      if (animateTimeoutRef.current) {
-        clearTimeout(animateTimeoutRef.current);
-        animateTimeoutRef.current = null;
-      }
-      
-      // Don't animate if nothing is selected
-      if (selectedRoutes.length === 0) return;
-      
-      // Small delay to let polylines render
-      animateTimeoutRef.current = setTimeout(() => {
-        const bounds = selectedRoutes.includes('all') 
-          ? allRoutesBounds 
-          : selectedRouteBounds;
-        
-        if (bounds && mapRef.current) {
-          mapRef.current.animateToRegion(bounds, 800);
-        }
-        
-        animateTimeoutRef.current = null;
-      }, 100);
-    }
-    
-    previousSelectedRoutesRef.current = selectedRoutes;
-  }, [selectedRoutes, selectedRouteBounds, allRoutesBounds]);
-
   // Reference point for the depleting bar fill: "how much hold time was left
   // when we first saw this hold" — recomputed only when the hold's target
   // (scheduledDepartTime) changes, not on every tick.
@@ -1458,16 +1222,6 @@ export default function MapScreen() {
     ? new Date(stopHoldBus.hold.scheduledDepartTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     : '';
 
-  useEffect(() => {
-    return () => {
-      if (animateTimeoutRef.current) {
-        clearTimeout(animateTimeoutRef.current);
-        animateTimeoutRef.current = null;
-      }
-    };
-  }, []);
-
-
   // ── render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -1488,61 +1242,35 @@ export default function MapScreen() {
         {/* Nothing below mounts until the native map view itself is ready —
             see mapReady above for why. */}
         {mapReady && <>
-        {/* Always render ALL polylines; use transparent color for inactive routes
-            to prevent the native layer from retaining ghost polylines. */}
+        {/* Always render ALL polylines, for every route whether selected or
+            not; use a transparent/zero-width line for anything hidden to
+            prevent the native layer from retaining ghost polylines (see the
+            file-level notes on why nothing here ever conditionally
+            unmounts). Selected + the route's primary direction (or a
+            circulator/stale route, which have no reliable direction split)
+            draws at full strength; the other direction draws thinner and
+            dimmed so it still reads as part of the route without competing
+            with the primary line. Which direction counts as primary is the
+            rider's own per-route pick — see getPrimaryDir/routePrimaryDir. */}
         {Object.entries(routeLines).flatMap(([route, dirs]) => {
-          const isActive = selectedRoutes.includes('all') || selectedRoutes.includes(route);
           const color = routeColors[route] ?? '#888888';
           const stale = !!staleRouteMap[route];
-          const effectiveDir = effectiveDirByRoute[route];
-          const polylineCount = Object.keys(dirs).length;
+          const selected = selectedRoutes.has(route);
+          const primary = getPrimaryDir(route);
 
           return Object.entries(dirs).map(([dirKey, path]) => {
-            // When stale (routes_patterns.json UUIDs don't match live API), we
-            // can't reliably determine which polyline is which direction, so
-            // show everything at full color. When fresh, only the selected
-            // direction is full-color; the other is dimmed.
-            const isSelectedDir = polylineCount === 1 || stale || dirKey === effectiveDir;
-            // A rerouted direction's bundled geometry is outdated — hide it;
-            // the reroute overlay below draws both the live path and the
-            // dashed regular path instead.
-            const isRerouted = !!reroutes[route]?.[dirKey];
-            let strokeColor: string;
-            if (!isActive || isRerouted) {
-              strokeColor = 'rgba(0,0,0,0)';
-            } else if (isSelectedDir) {
-              strokeColor = color;
-            } else {
-              strokeColor = dimColor(color);
-            }
+            const kind = routeDirKinds[route]?.[dirKey] ?? 'circulator';
+            const isSecondary = !stale && kind !== 'circulator' && dirKey !== primary;
+            const strokeColor = !selected ? 'rgba(0,0,0,0)' : isSecondary ? dimColor(color) : color;
+            const strokeWidth = !selected ? 0 : isSecondary ? 3 : 5;
             // Every polyline stays mounted at all times with a STABLE key
-            // (route+direction only — never the color). Baking strokeColor
-            // into the key was the actual bug: it forced React to unmount
-            // the old-colored Polyline and mount a new one on every single
-            // route/direction switch, and it's exactly that native
-            // add/remove churn that leaves a ghost path behind on Android
-            // (a removed overlay isn't always cleaned up promptly). With a
-            // stable key, switching routes only updates strokeColor/
-            // strokeWidth props on the same already-mounted native view —
-            // nothing is ever added or removed, so nothing can ghost.
             return (
               <Polyline
                 key={`line-${route}-${dirKey}`}
-                // A fresh array reference each render (not the raw `path`
-                // straight from routeLines state, which stays the same
-                // object across many renders) — react-native-maps/Fabric
-                // sometimes drops a strokeColor/strokeWidth-only prop update
-                // when `coordinates` hasn't changed reference, leaving a
-                // toggled-on route invisible (stops show, line doesn't) until
-                // something forces a fuller re-diff. Closing and reopening
-                // the route was two more of the exact same style-only
-                // updates, so "sometimes" landing matches a diffing race,
-                // not a logic bug. Cloning is cheap at this point count even
-                // with every route's polyline re-rendering on each bus poll.
                 coordinates={[...path]}
                 strokeColor={strokeColor}
-                strokeWidth={isActive && isSelectedDir ? 5 : isActive ? 3.5 : 0}
-                zIndex={isActive && isSelectedDir ? 2 : isActive ? 1 : 0}
+                strokeWidth={strokeWidth}
+                zIndex={isSecondary ? 1 : 2}
               />
             );
           });
@@ -1561,71 +1289,41 @@ export default function MapScreen() {
             exactly the native ghost/crash bug the base-polyline comment
             above describes. */}
         {Object.entries(reroutesGeometry).flatMap(([route, dirs]) => {
-          const isSelected = selectedRoutes.includes('all') || selectedRoutes.includes(route);
           const color = routeColors[route] ?? '#888888';
           const stale = !!staleRouteMap[route];
-          const polylineCount = Object.keys(routeLines[route] ?? {}).length;
+          const routeSelected = selectedRoutes.has(route);
+          const primary = getPrimaryDir(route);
           return Object.entries(dirs).flatMap(([dk, info]) => {
             if (!Array.isArray(info?.currentCoordinates) || info.currentCoordinates.length < 2) return [];
             if (!Array.isArray(info?.baselineCoordinates) || info.baselineCoordinates.length < 2) return [];
-            // Matched by direction NAME, not raw key — see
-            // isSelectedDirection. A reroute's directionKey can rotate on
-            // every single poll while the detour is active, which made this
-            // raw-key comparison against effectiveDirByRoute (a separately
-            // and less-frequently polled snapshot) miss almost every time,
-            // hiding the dashed baseline line entirely (confirmed 2026-07-15
-            // on route 04).
-            const isSelectedDir = polylineCount <= 1 || stale
-              || isSelectedDirection(route, dk, info.directionName, effectiveDirByRoute[route]);
-            // The dashed baseline is binary — fully hidden on the
-            // non-selected direction — same as the proven-safe hide-based
-            // version. Only the SOLID current-path line goes through a dim
-            // state (thinner + faded, never hidden) on the non-selected
-            // direction: a dim state on BOTH lines together is what
-            // crashed on toggle before, so this narrows the risky
-            // prop-mutation to a single polyline instead of two.
-            const dashedVisible = isSelected && !!reroutes[route]?.[dk] && isSelectedDir;
-            const solidVisible = isSelected && !!reroutes[route]?.[dk];
-            const baseColor = dashedVisible ? '#DC2626' : 'rgba(0,0,0,0)';
-            const curColor = !solidVisible ? 'rgba(0,0,0,0)' : isSelectedDir ? color : dimColor(color);
+            const active = routeSelected && !!reroutes[route]?.[dk];
+            const kind = routeDirKinds[route]?.[dk] ?? 'circulator';
+            const isSecondary = !stale && kind !== 'circulator' && dk !== primary;
+            // The red "this is what you're missing" dashed baseline only
+            // makes sense for the direction currently at full strength — on
+            // the secondary direction it's dropped entirely (not just
+            // thinned) rather than cluttering the dimmed line with a second,
+            // differently-colored one.
+            const baseActive = active && !isSecondary;
+            const baseColor = baseActive ? '#DC2626' : 'rgba(0,0,0,0)';
+            const curColor = !active ? 'rgba(0,0,0,0)' : isSecondary ? dimColor(color) : color;
             // STABLE key (route+dk only), matching every other polyline in
             // this file — coordinates update in place via props instead of
-            // remounting. A previous version baked the trimmed segment's
-            // point count into the key to dodge a hypothesized (never
-            // actually confirmed) Android crash on in-place coordinate
-            // updates. But the trimmed segment's length changes almost
-            // every 5-minute poll while a reroute is active, so that was
-            // silently remounting these two polylines over and over for as
-            // long as the reroute stayed active — which is exactly the kind
-            // of native view churn this file's own base-polyline comment
-            // already identified as the real Android hazard ("unmount →
-            // native ghost"), not prop updates. That repeated remounting is
-            // the far more likely explanation for buses glitching out and
-            // the app crashing specifically on the actively-rerouted route.
+            // remounting.
             return [
               <Polyline
                 key={`reroute-base-${route}-${dk}`}
                 coordinates={info.baselineCoordinates}
                 strokeColor={baseColor}
-                strokeWidth={dashedVisible ? 3 : 0}
+                strokeWidth={baseActive ? 3 : 0}
                 lineDashPattern={[14, 10]}
-                // Constant, not dashedVisible-dependent — visibility is
-                // already fully handled by strokeWidth/color going to 0/
-                // transparent, so zIndex never needs to move too. Route 04
-                // (the only route with any geometry here — every other
-                // route's reroutesGeometry entry is empty and short-circuits
-                // above) was the sole route where the bus marker vanished,
-                // permanently, on a direction toggle; this pair of Polylines
-                // is the only thing that changes props on toggle that's
-                // unique to that route, so freezing every prop we don't
-                // strictly need to move removes that as a variable.
                 zIndex={2}
               />,
               <Polyline
                 key={`reroute-cur-${route}-${dk}`}
                 coordinates={info.currentCoordinates}
                 strokeColor={curColor}
-                strokeWidth={solidVisible ? (isSelectedDir ? 5 : 3.5) : 0}
+                strokeWidth={active ? (isSecondary ? 3 : 5) : 0}
                 zIndex={3}
               />,
             ];
@@ -1634,104 +1332,32 @@ export default function MapScreen() {
 
         {/* Bus markers — rendered after stop markers below so buses always draw on
             top when a bus and a stop coincide, reinforced by the explicit zIndex.
-            Every bus stays mounted; deselected routes' buses are parked
-            off-map via their AnimatedRegion (see the dedupedBuses comment
-            for the history: filtered mounting crashed, opacity didn't show). */}
+            Every bus stays mounted at all times (see busDisplayInfo above for
+            why hiding is done via opacity/tappable, not mount/unmount).
+            Rendered via BusMarker/BusHeadingMarker below, each of which owns
+            its own tracksViewChanges lifecycle scoped to ITS OWN content
+            changes only. */}
         {dedupedBuses.flatMap(bus => {
-          const isRouteVisible = selectedRoutes.includes('all') || selectedRoutes.includes(bus.route);
           const color = routeColors[bus.route] ?? '#CC2936';
-          // Dim buses on the non-selected direction. Matched by direction
-          // NAME (bus.direction, e.g. "to MSC" — AggieSpirit's vehicle feed
-          // already carries this directly) against selectedDirNameByRoute,
-          // not bus.directionKey against effectiveDirByRoute's routeLines
-          // snapshot — those are two independently-polled live sources, and
-          // an actively-rerouted route's directionKey can rotate on every
-          // single poll (confirmed 2026-07-15 on route 04), which made the
-          // raw-key comparison miss constantly and dim buses that were
-          // actually on the selected direction. Falls back to the old
-          // key comparison when a name isn't available on either side (via
-          // isSelectedDirection). When routes_patterns.json is stale we
-          // can't trust ANY direction mapping, so staleRouteMap disables
-          // dimming and shows all buses at full opacity instead of guessing.
-          const isBusSelectedDir =
-            selectedRoutes.includes('all') ||
-            !!staleRouteMap[bus.route] ||
-            bus.directionKey == null ||
-            isSelectedDirection(bus.route, bus.directionKey, bus.direction, effectiveDirByRoute[bus.route]);
-          // Shared by this bus's icon, heading arrow, and (if open) its callout
-          // below, so a position update glides all of them together instead of
-          // each independently snapping to the new point.
-          const busFillColor = isBusSelectedDir ? color : dimColor(color);
-          // Shared by this bus's icon, heading arrow, and (if open) its callout
-          // below, so a position update glides all of them together instead of
-          // each independently snapping to the new point.
-          const region = getBusRegion(bus, isRouteVisible);
-
-          const markers = [
-            <Marker.Animated
+          const info = busDisplayInfo.get(bus.name) ?? { visible: false, opacity: 0 };
+          return [
+            <BusMarker
               key={bus.name}
-              coordinate={region as any}
-              anchor={{ x: 0.5, y: 0.5 }}
-              // Was hard-frozen false; that means this marker snapshots its
-              // content exactly once at mount, and if that first snapshot
-              // races the child View's layout (same mount-time race already
-              // documented for stop markers and the old heading-arrow
-              // children), the marker permanently falls back to the default
-              // red pin instead of the bus icon. Sharing headingRefreshPulse
-              // (same per-poll pulse the heading arrows and callout already
-              // use) lets a failed snapshot self-heal on the next poll
-              // instead of staying broken for the rest of the session.
-              tracksViewChanges={headingRefreshPulse}
-              // Must beat every polyline's zIndex, including the rerouted
-              // solid overlay (max 3, see the reroute-overlay block above) —
-              // a tie there let the platform's stacking order win, which on
-              // iOS could put an opaque route line on top of the bus icon
-              // right where the bus always sits (on its own route). Only
-              // ever visible on a route with an active reroute, and only
-              // sometimes (a tie's resolution isn't guaranteed), which
-              // matches the route-04-only, intermittent "bus disappears"
-              // report exactly.
-              zIndex={10}
-              onPress={() => isRouteVisible && openBusCallout(bus)}
-            >
-              <View
-                style={styles.busMarkerWrap}
-                accessible
-                accessibilityRole="button"
-                accessibilityLabel={`Bus ${busDisplayName(bus.name)}, route ${bus.route}${bus.direction ? `, ${bus.direction}` : ''}`}
-                accessibilityHint="Shows this bus's details"
-              >
-                <View style={[styles.busCircleFill, { backgroundColor: busFillColor }]} />
-                <View style={styles.busCircleBorder} />
-                <Image source={require('../../assets/images/bus.png')} style={styles.busIcon} />
-              </View>
-            </Marker.Animated>,
-          ];
-
-          markers.push(
-            <Marker.Animated
-              key={`${bus.name}-heading`}
-              coordinate={region as any}
-              anchor={{ x: 0.5, y: 0.5 }}
-              image={headingArrowImage(bus.heading)}
-              tracksViewChanges={headingRefreshPulse}
-              tappable={false}
-              zIndex={9}
+              bus={bus}
+              fillColor={color}
+              opacity={info.opacity}
+              tappable={info.visible}
+              onPress={() => info.visible && openBusCallout(bus)}
             />,
-          );
-
-          return markers;
+            <BusHeadingMarker
+              key={`${bus.name}-heading`}
+              bus={bus}
+              opacity={info.opacity}
+            />,
+          ];
         })}
 
-        {/* Stop markers — every stop belonging to a selected route stays
-            mounted for as long as that route stays selected (see routeStops
-            above); within that set, stops outside the current DIRECTION
-            selection are hidden via the native `opacity`/`tappable` props
-            instead of being left out of this array, so flipping direction
-            never adds/removes markers.
-            Stops we've learned are closed (after tapping into their schedule)
-            get dimmed with a red badge; we can't know this ahead of a tap
-            without querying every stop's schedule upfront.
+        {/* Stop markers — every stop stays mounted; all visible.
             Rendered via the StopMarker subcomponent below, which owns its
             own `ready` state so tracksViewChanges only ever locks to false
             AFTER its icon has actually laid out — see StopMarker for why. */}
@@ -1739,9 +1365,9 @@ export default function MapScreen() {
           <StopMarker
             key={stop.code}
             stop={stop}
-            isVisible={selectedRoutes.includes('all') || visibleStopCodes.has(stop.code)}
+            isVisible={true}
             isClosed={closedStopCodes.has(stop.code)}
-            isUnserved={unservedStopCodes.has(stop.code) && !stop.isTemporary}
+            isUnserved={unservedStopCodesForSelection.has(stop.code)}
             isTimepoint={isStopTimepointForSelection(stop)}
             onPress={() => openStopPanel(stop)}
             refreshPulse={stopRefreshPulse}
@@ -1756,9 +1382,9 @@ export default function MapScreen() {
             tracksViewChanges is on since its content (speed/passengers/hold)
             changes live — acceptable for the one currently-selected bus. */}
         {selectedBusName && selectedBus && busSheetStats && (
-          <Marker.Animated
+          <Marker
             key={`${selectedBus.name}-callout`}
-            coordinate={(busRegionsRef.get(selectedBus.name) ?? { latitude: selectedBus.lat, longitude: selectedBus.lon }) as any}
+            coordinate={{ latitude: selectedBus.lat, longitude: selectedBus.lon }}
             anchor={{ x: 0.5, y: 1 }}
             tracksViewChanges={calloutRefreshPulse}
             tappable={false}
@@ -1835,7 +1461,7 @@ export default function MapScreen() {
               </View>
               <View style={[styles.calloutPointer, { borderTopColor: sheetBg }]} />
             </View>
-          </Marker.Animated>
+          </Marker>
         )}
         </>}
       </MapView>
@@ -1851,23 +1477,21 @@ export default function MapScreen() {
         </View>
         <TouchableOpacity
           style={[styles.routeSelector, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
-          onPress={() => setDropdownVisible(true)}
-          activeOpacity={0.7}
+          onPress={() => { setRoutePickerAnimation('slide'); setRoutePickerOpen(true); }}
           accessibilityRole="button"
-          accessibilityLabel={`Select routes, currently ${routeLabel}`}
-          accessibilityHint="Opens the route picker"
+          accessibilityLabel={`${routeSelectorLabel}. Tap to change which routes are shown`}
         >
-          <Text style={[styles.routeSelectorText, { color: c.text }]} numberOfLines={1}>{routeLabel}</Text>
+          <Text style={[styles.routeSelectorText, { color: c.text }]} numberOfLines={1}>{routeSelectorLabel}</Text>
           <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
         </TouchableOpacity>
       </View>
 
       {/* ── Route selector modal ───────────────────────────────────────────── */}
-      <Modal visible={dropdownVisible} transparent animationType="slide" onRequestClose={() => setDropdownVisible(false)}>
+      <Modal visible={routePickerOpen} transparent animationType={routePickerAnimation} onRequestClose={() => setRoutePickerOpen(false)}>
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPress={() => setDropdownVisible(false)}
+          onPress={() => setRoutePickerOpen(false)}
           accessibilityRole="button"
           accessibilityLabel="Dismiss route picker"
         />
@@ -1875,91 +1499,90 @@ export default function MapScreen() {
           <View style={[styles.sheetHandle, { backgroundColor: c.border }]} />
           <View style={[styles.sheetHeader, { borderBottomColor: c.border }]}>
             <Text style={[styles.sheetTitle, { color: c.text }]} accessibilityRole="header">Select Routes</Text>
-            <TouchableOpacity onPress={() => setDropdownVisible(false)} accessibilityRole="button" hitSlop={8}>
+            <TouchableOpacity onPress={() => setRoutePickerOpen(false)} accessibilityRole="button" hitSlop={8}>
               <Text style={[styles.sheetDone, { color: c.tint }]}>Done</Text>
             </TouchableOpacity>
           </View>
 
           <TouchableOpacity
-            style={[styles.routeRow, selectedRoutes.includes('all') && { backgroundColor: c.tint + '15' }, { borderBottomColor: c.border }]}
-            onPress={() => toggleRoute('all')}
+            style={[styles.routeRow, selectedRoutes.size === ALL_ROUTES.length && { backgroundColor: c.tint + '15' }, { borderBottomColor: c.border }]}
+            onPress={() => setSelectedRoutes(selectedRoutes.size === ALL_ROUTES.length ? new Set() : new Set(ALL_ROUTES))}
             accessibilityRole="checkbox"
             accessibilityLabel="All routes"
-            accessibilityState={{ checked: selectedRoutes.includes('all') }}
+            accessibilityState={{ checked: selectedRoutes.size === ALL_ROUTES.length }}
           >
-            <View style={[styles.routeTag, { backgroundColor: selectedRoutes.includes('all') ? c.tint : c.surfaceAlt }]}>
-              <Text style={[styles.routeTagText, { color: selectedRoutes.includes('all') ? '#fff' : c.textSecondary }]}>ALL</Text>
+            <View style={[styles.routeTag, { backgroundColor: selectedRoutes.size === ALL_ROUTES.length ? c.tint : c.surfaceAlt }]}>
+              <Text style={[styles.routeTagText, { color: selectedRoutes.size === ALL_ROUTES.length ? '#fff' : c.textSecondary }]}>ALL</Text>
             </View>
             <Text style={[styles.routeName, { color: c.text }]}>All Routes</Text>
-            {selectedRoutes.includes('all') && <Text style={[styles.checkmark, { color: c.tint }]}>✓</Text>}
+            {selectedRoutes.size === ALL_ROUTES.length && <Text style={[styles.checkmark, { color: c.tint }]}>✓</Text>}
           </TouchableOpacity>
 
           <FlatList
             data={sortedRoutes}
             keyExtractor={item => item}
-            renderItem={({ item }) => {
-              const selected = selectedRoutes.includes(item);
-              const info = (routePatterns as any)[item];
-              // Fall back to bundled pattern keys so direction buttons appear
-              // immediately even before the /routes API call returns.
-              const apiDirs = routeInfo[item]?.directions ?? [];
-              const patternKeys = Object.values((info?.patterns ?? {}) as Record<string, any>)
-                .map((p: any, i) => ({ key: (p.direction_key || `pattern_${i}`).toLowerCase(), name: '' }));
-              const directions = apiDirs.length > 0 ? apiDirs : patternKeys;
-              const hasMultipleDirs = directions.length > 1;
-              // routeDirections stores API keys (set when user taps a button).
-              // Default to the first direction's key when user hasn't picked yet.
-              const defaultDir = directions[0]?.key;
-              const currentApiDir = routeDirections[item] ?? defaultDir;
-              const color = routeColors[item] ?? c.tint;
-
+            renderItem={({ item: route }) => {
+              const selected = selectedRoutes.has(route);
+              const info = routeInfo[route];
+              const color = routeColors[route] ?? c.tint;
+              const stale = !!staleRouteMap[route];
+              const dirKeys = Object.keys(routeLines[route] ?? {});
+              const hasMultipleDirs = dirKeys.length > 1;
+              const primary = getPrimaryDir(route);
               return (
                 <TouchableOpacity
                   style={[styles.routeRowContainer, selected && { backgroundColor: c.tint + '15' }, { borderBottomColor: c.border }]}
-                  onPress={() => toggleRoute(item)}
+                  onPress={() => toggleRoute(route)}
                   accessibilityRole="checkbox"
-                  accessibilityLabel={`Route ${item}, ${info?.name ?? ''}${disruptedRoutes.has(item) ? ', has a service disruption' : ''}${isFavorite(item) ? ', favorite' : ''}`}
+                  accessibilityLabel={`Route ${route}, ${info?.name ?? ''}${disruptedRoutes.has(route) ? ', has a service disruption' : ''}${isFavorite(route) ? ', favorite' : ''}`}
                   accessibilityState={{ checked: selected }}
                 >
                   <View style={styles.routeRowTop}>
                     <View style={[styles.routeTag, { backgroundColor: selected ? color : c.surfaceAlt }]}>
-                      <Text style={[styles.routeTagText, { color: selected ? '#fff' : c.text }]}>{item}</Text>
+                      <Text style={[styles.routeTagText, { color: selected ? '#fff' : c.text }]}>{route}</Text>
                     </View>
                     <Text style={[styles.routeName, { color: c.text }]} numberOfLines={1}>
-                      {info?.name ?? `Route ${item}`}
+                      {info?.name ?? `Route ${route}`}
                     </Text>
-                    {disruptedRoutes.has(item) && <Text style={styles.disruptionWarning}>⚠</Text>}
-                    {isFavorite(item) && <Text style={styles.favoriteStar}>★</Text>}
+                    {disruptedRoutes.has(route) && <Text style={styles.disruptionWarning}>⚠</Text>}
+                    {isFavorite(route) && <Text style={styles.favoriteStar}>★</Text>}
                     {selected && <Text style={[styles.checkmark, { color }]}>✓</Text>}
                   </View>
-                  {selected && hasMultipleDirs && (
+                  {selected && hasMultipleDirs && !stale && (
                     <View style={styles.dirToggleWrap}>
-                      {directions.map(d => (
-                        <TouchableOpacity
-                          key={d.key}
-                          style={[styles.dirChipFull, { backgroundColor: c.surfaceAlt }, d.key === currentApiDir && { backgroundColor: color }]}
-                          onPress={e => { e.stopPropagation?.(); setRouteDir(item, d.key); }}
-                          accessibilityRole="radio"
-                          accessibilityLabel={`${d.name || (directions.indexOf(d) === 0 ? 'Inbound' : 'Outbound')} direction`}
-                          accessibilityState={{ checked: d.key === currentApiDir }}
-                        >
-                          <Text numberOfLines={1} style={[styles.dirChipFullText, { color: d.key === currentApiDir ? '#fff' : c.textSecondary }]}>
-                            {d.name || (directions.indexOf(d) === 0 ? 'Inbound' : 'Outbound')}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
+                      {dirKeys.map(dirKey => {
+                        const kind = routeDirKinds[route]?.[dirKey];
+                        const label = info?.directions.find(d => d.key === dirKey)?.name
+                          || (kind === 'outbound' ? 'Outbound' : 'Inbound');
+                        const isPrimary = dirKey === primary;
+                        return (
+                          <TouchableOpacity
+                            key={dirKey}
+                            style={[styles.dirChipFull, { backgroundColor: c.surfaceAlt }, isPrimary && { backgroundColor: color }]}
+                            onPress={e => { e.stopPropagation?.(); setRouteDirection(route, dirKey); }}
+                            accessibilityRole="radio"
+                            accessibilityLabel={`${label} direction`}
+                            accessibilityState={{ checked: isPrimary }}
+                          >
+                            <Text numberOfLines={1} style={[styles.dirChipFullText, { color: isPrimary ? '#fff' : c.textSecondary }]}>
+                              {label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
                     </View>
                   )}
-                  {selected && disruptedRoutes.has(item) && (
+                  {selected && disruptedRoutes.has(route) && (
                     <TouchableOpacity
                       style={styles.disruptionButton}
                       onPress={e => {
                         e.stopPropagation?.();
-                        setDropdownVisible(false);
-                        router.push({ pathname: '/disruptions', params: { route: item } } as any);
+                        setRoutePickerAnimation('none');
+                        setRoutePickerOpen(false);
+                        router.push({ pathname: '/disruptions', params: { route } } as any);
                       }}
                       accessibilityRole="button"
-                      accessibilityLabel={`View service disruption for route ${item}`}
+                      accessibilityLabel={`View service disruption for route ${route}`}
                     >
                       <Text style={styles.disruptionButtonIcon}>⚠</Text>
                       <Text style={styles.disruptionButtonText}>View Service Disruption</Text>
@@ -2035,19 +1658,17 @@ export default function MapScreen() {
             </View>
           )}
 
-          {/* Route filter toggle — shown when specific routes are selected and times exist */}
-          {!selectedRoutes.includes('all') && (stopTimes.length > 0 || stopSchedule.length > 0) && (
-            <TouchableOpacity
-              style={[styles.filterToggle, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
-              onPress={() => setShowAllStopRoutes(v => !v)}
-              accessibilityRole="button"
-              accessibilityLabel={showAllStopRoutes ? 'Show selected routes only' : 'Show all route times'}
-            >
-              <Text style={[styles.filterToggleText, { color: c.tint }]}>
-                {showAllStopRoutes ? 'Show selected routes only' : 'Show all route times'}
-              </Text>
-            </TouchableOpacity>
-          )}
+          {/* Route filter toggle — always visible */}
+          <TouchableOpacity
+            style={[styles.filterToggle, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
+            onPress={() => setShowAllStopRoutes(v => !v)}
+            accessibilityRole="button"
+            accessibilityLabel={showAllStopRoutes ? 'Show selected routes only' : 'Show all route times'}
+          >
+            <Text style={[styles.filterToggleText, { color: c.tint }]}>
+              {showAllStopRoutes ? 'Show selected routes only' : 'Show all route times'}
+            </Text>
+          </TouchableOpacity>
 
           {/* Times content. The day-browser row (Today/Tomorrow/...) is always
               visible so a rider can check any day's full schedule regardless
@@ -2320,6 +1941,95 @@ export default function MapScreen() {
   );
 }
 
+// ── sub-component: bus marker ───────────────────────────────────────────────
+//
+// Self-contained refresh lifecycle, same pattern as StopMarker below —
+// deliberately NOT driven by any shared/global pulse state. The previous
+// version gated every bus marker's tracksViewChanges on one shared boolean
+// that got flipped both on every 10s bus poll AND on every selectedRoutes
+// change. Toggling a second route on meant a batch of buses flipping
+// opacity 0→1 at the SAME instant every bus in the fleet (visible or not)
+// was told to re-snapshot — a large simultaneous batch of native mounting
+// instructions, the same crash pattern documented elsewhere in this file
+// for heading arrows and stop markers. Scoping the pulse to each marker's
+// own content (this bus's fill color only) means opening a route only ever
+// changes cheap props (opacity/tappable) on however many markers are
+// affected, and never touches tracksViewChanges for the fleet at once.
+function BusMarker({
+  bus,
+  fillColor,
+  opacity,
+  tappable,
+  onPress,
+}: {
+  bus: any;
+  fillColor: string;
+  opacity: number;
+  tappable: boolean;
+  onPress: () => void;
+}) {
+  const [ready, setReady] = useState(false);
+
+  return (
+    <Marker
+      coordinate={{ latitude: bus.lat, longitude: bus.lon }}
+      anchor={{ x: 0.5, y: 0.5 }}
+      opacity={opacity}
+      tappable={tappable}
+      tracksViewChanges={!ready}
+      zIndex={10}
+      onPress={onPress}
+    >
+      <View
+        style={styles.busMarkerWrap}
+        onLayout={() => requestAnimationFrame(() => setReady(true))}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={`Bus ${busDisplayName(bus.name)}, route ${bus.route}${bus.direction ? `, ${bus.direction}` : ''}`}
+        accessibilityHint="Shows this bus's details"
+      >
+        <View style={[styles.busCircleFill, { backgroundColor: fillColor }]} />
+        <View style={styles.busCircleBorder} />
+        <Image source={require('../../assets/images/bus.png')} style={styles.busIcon} />
+      </View>
+    </Marker>
+  );
+}
+
+// Heading-arrow marker. Same self-contained approach as BusMarker above,
+// pulsing tracksViewChanges only when THIS bus's own heading value changes
+// (a new arrow image needs rasterizing) — never in lockstep with any other
+// bus. Image-only marker (no child View), so there's no onLayout to hook;
+// "ready" locks after two animation frames post-mount instead, which is
+// enough headroom for the image prop to have actually been applied natively
+// before the first snapshot locks in.
+function BusHeadingMarker({ bus, opacity }: { bus: any; opacity: number }) {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, []);
+
+  return (
+    <Marker
+      coordinate={{ latitude: bus.lat, longitude: bus.lon }}
+      anchor={{ x: 0.5, y: 0.5 }}
+      image={headingArrowImage(bus.heading)}
+      opacity={opacity}
+      tracksViewChanges={!ready}
+      tappable={false}
+      zIndex={9}
+    />
+  );
+}
+
 // ── sub-component: stop marker ──────────────────────────────────────────────
 //
 // tracksViewChanges used to be hard-frozen `false` inline on this Marker.
@@ -2327,8 +2037,8 @@ export default function MapScreen() {
 // exactly once, at mount, and never re-snapshot it. If that one snapshot
 // races the child View's own layout/paint (the same mount-time race already
 // documented and fixed for the bus icon and heading-arrow markers above —
-// see headingRefreshPulse), MapKit has nothing to rasterize and silently
-// substitutes its own default red drop-pin instead. Because
+// see BusMarker/BusHeadingMarker), MapKit has nothing to rasterize and
+// silently substitutes its own default red drop-pin instead. Because
 // tracksViewChanges never flipped back to true, that marker was stuck
 // showing the stock pin for the rest of its mounted life — and worse, the
 // stock pin ignores the `opacity` prop this file relies on for hiding
