@@ -40,9 +40,7 @@ jobs:
           echo "Available schemes:"
           xcodebuild -workspace "$WORKSPACE" -list
 
-          # Expo projects use the app name as the scheme.
-          # If your app name changes, update this line.
-          SCHEME=bus
+          SCHEME="Century Tree Transit"
 
           echo "Using scheme: $SCHEME"
 
