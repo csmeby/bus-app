@@ -40,7 +40,7 @@ jobs:
           echo "Available schemes:"
           xcodebuild -workspace "$WORKSPACE" -list
 
-          SCHEME="Century Tree Transit"
+          SCHEME=$(basename "$WORKSPACE" .xcworkspace)
 
           echo "Using scheme: $SCHEME"
 

@@ -117,7 +117,7 @@ jobs:
           PROFILE_UUID: ${{ steps.profile.outputs.uuid }}
         run: |
           WORKSPACE=$(ls -d *.xcworkspace | head -n1)
-          SCHEME=bus
+          SCHEME=$(basename "$WORKSPACE" .xcworkspace)
 
           echo "Using workspace $WORKSPACE, scheme $SCHEME"
 
