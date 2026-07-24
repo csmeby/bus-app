@@ -238,11 +238,32 @@ function busDisplayName(name: string): string {
   return name.replace(/^B(?=\d)/, '');
 }
 
+// Sort key for "numerical order" route lists — reads the leading digits of
+// a route short name ("01-04" -> 1, "12" -> 12) so routes sort by number
+// rather than lexicographically ("12" before "3"). Routes with no leading
+// digits sort last.
+function routeNumberSortKey(routeShortName: string | undefined): number {
+  const m = (routeShortName ?? '').match(/^(\d+)/);
+  return m ? parseInt(m[1], 10) : Number.MAX_SAFE_INTEGER;
+}
+
 function formatCountdown(totalSeconds: number): string {
   const s = Math.max(0, Math.round(totalSeconds));
   const m = Math.floor(s / 60);
   const sec = s % 60;
   return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+// bus.delay comes from the server's bus_delay.py — an approximate schedule
+// offset (see that module's docstring for how, and its caveats), or null
+// when it couldn't be confidently computed. Deliberately not shown for a
+// null delay rather than falling back to "On time" — we don't actually know
+// that, we just don't know the delay either.
+function busDelayLabel(delay: { minutes: number } | null | undefined): string | null {
+  if (!delay || typeof delay.minutes !== 'number') return null;
+  if (delay.minutes === 0) return 'On time';
+  const mins = Math.abs(delay.minutes);
+  return `${mins}m ${delay.minutes > 0 ? 'late' : 'early'}`;
 }
 
 // Upstream amenity shapes aren't pinned down yet — fall back through the
@@ -598,14 +619,20 @@ export default function MapScreen() {
     return s;
   }, [reroutes, selectedRoutes]);
 
-  // Which stops render as markers AT ALL — route-selection only, deliberately
-  // NOT direction-filtered. Every mount/unmount re-rolls the StopMarker
-  // tracksViewChanges race (see that component) that can leave iOS's own
-  // default red pin behind; scoping this to route selection alone (like the
-  // old, battle-tested version of this screen did) means flipping a route's
-  // inbound/outbound toggle never remounts a marker — direction only ever
-  // changes opacity on an already-mounted, already-settled one (see
-  // visibleStopCodes below), same treatment as bus direction dimming.
+  // Which stops render as markers AT ALL — tied to the CURRENT route
+  // selection, same as buses (mountedBuses). A previous version of this
+  // mounted a stop once its route had EVER been selected and never
+  // unmounted it again, on the theory that removing an already-mounted
+  // marker was the specifically unreliable native operation for stops. That
+  // held up for the "select individual routes" case, but broke down exactly
+  // the way this comment now knows to check for: once "All Routes" gets
+  // selected even once, EVERY route joins the ever-selected set, so EVERY
+  // stop in the system stays permanently mounted from then on — meaning
+  // every subsequent route (de)selection becomes pure opacity toggling on
+  // an already-mounted marker, which is the EXACT pattern that failed for
+  // buses (opacity flipping back to visible silently not redisplaying).
+  // Mounting/unmounting by current selection is what actually fixed that
+  // for buses, so stops use the same approach now.
   const routeStops = useMemo(
     () => stops.filter(stop =>
       unservedStopCodesForSelection.has(stop.code) || stop.routes.some(r => selectedRoutes.has(r))),
@@ -655,12 +682,27 @@ export default function MapScreen() {
         if (!selectedRoutes.has(r)) return false;
         if (staleRouteMap[r]) return true;
         const keys = stop.dirKeys[r] ?? [];
-        return keys.includes(getPrimaryDir(r) ?? '');
+        if (keys.length === 0) return false;
+        // Match by direction KIND (inbound/outbound/circulator), not raw
+        // dirKey equality. stop.dirKeys accumulates additively across every
+        // applyPatterns call this session and never prunes (see that
+        // function's comments) — so it can still hold an OLDER
+        // direction_key UUID for a route whose live keys have since
+        // rotated. AggieSpirit does rotate these, confirmed on actively-
+        // rerouted routes (see the reroute-matching notes elsewhere in this
+        // file) — and getPrimaryDir always reads the CURRENT routeLines
+        // keys, so a raw UUID equality check here would silently stop
+        // matching the moment a route's keys rotated, hiding stops that are
+        // still completely legitimate for the route's current primary
+        // direction. routeDirKinds is keyed the same (possibly-stale) way
+        // stop.dirKeys is, so this bridges the gap either way.
+        const primaryKind = routeDirKinds[r]?.[getPrimaryDir(r) ?? ''] ?? 'circulator';
+        return keys.some(k => (routeDirKinds[r]?.[k] ?? 'circulator') === primaryKind);
       });
       if (show) visible.add(stop.code);
     });
     return { visibleStopCodes: visible, unservedVisibleStopCodes: unserved };
-  }, [routeStops, selectedRoutes, staleRouteMap, getPrimaryDir, reroutes]);
+  }, [routeStops, selectedRoutes, staleRouteMap, getPrimaryDir, reroutes, routeDirKinds]);
 
 
   // Favorited routes (set in Settings) float to the top; stable sort keeps
@@ -707,9 +749,24 @@ export default function MapScreen() {
         }))
       : raw;
 
-    const filtered = (showAllStopRoutes)
+    // Default view is scoped to the route(s) currently selected on the map
+    // — tapping a stop while "Route 12" is open shouldn't dump every route
+    // that happens to share this physical stop into the panel. "All Stop
+    // Times" (showAllStopRoutes) lifts that filter. Fuzzy startsWith match
+    // (not strict equality) so a combined route like "01-04" still matches
+    // whichever of "01"/"04" the rider has selected, and vice versa.
+    const filtered = showAllStopRoutes
       ? processed
-      : processed;
+      : processed.filter(entry => {
+          const rn = entry.routeShortName ?? '';
+          return [...selectedRoutes].some(r => rn.startsWith(r) || r.startsWith(rn));
+        });
+
+    if (showAllStopRoutes) {
+      // Numerical order across every route serving this stop, regardless
+      // of which have upcoming departures.
+      return [...filtered].sort((a, b) => routeNumberSortKey(a.routeShortName) - routeNumberSortKey(b.routeShortName));
+    }
     // Routes with no departures that day sink to the bottom instead of
     // cluttering the top with empty rows. Array.sort is stable, so routes
     // within each group (has times / no times) keep their original order.
@@ -718,7 +775,7 @@ export default function MapScreen() {
       const bEmpty = b.departureTimes.length === 0 ? 1 : 0;
       return aEmpty - bEmpty;
     });
-  }, [stopTimes, stopSchedule, stopDate, showAllStopRoutes]);
+  }, [stopTimes, stopSchedule, stopDate, showAllStopRoutes, selectedRoutes]);
 
   // ── data loading ───────────────────────────────────────────────────────────
 
@@ -1213,6 +1270,7 @@ export default function MapScreen() {
       barColor: passengerColor(pct),
       dispPax: Math.max(0, selectedBus.passengers),
       offRoute,
+      delayLabel: busDelayLabel(selectedBus.delay),
     };
   }, [selectedBus, routeLines]);
 
@@ -1510,6 +1568,9 @@ export default function MapScreen() {
                   </View>
                   <Text style={[styles.barLabel, { color: c.textSecondary }]}>~{busSheetStats.dispPax} pax</Text>
                 </View>
+                {busSheetStats.delayLabel && (
+                  <Text style={[styles.delayLabel, { color: c.textSecondary }]}>{busSheetStats.delayLabel}</Text>
+                )}
               </View>
               <View style={[styles.calloutPointer, { borderTopColor: sheetBg }]} />
             </View>
@@ -1710,17 +1771,21 @@ export default function MapScreen() {
             </View>
           )}
 
-          {/* Route filter toggle — always visible */}
-          <TouchableOpacity
-            style={[styles.filterToggle, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
-            onPress={() => setShowAllStopRoutes(v => !v)}
-            accessibilityRole="button"
-            accessibilityLabel={showAllStopRoutes ? 'Show selected routes only' : 'Show all route times'}
-          >
-            <Text style={[styles.filterToggleText, { color: c.tint }]}>
-              {showAllStopRoutes ? 'Show selected routes only' : 'Show all route times'}
-            </Text>
-          </TouchableOpacity>
+          {/* Route filter toggle — only worth showing when this physical
+              stop actually serves more than one route; otherwise "All Stop
+              Times" would just show the exact same single row. */}
+          {selectedStop.routes.length > 1 && (
+            <TouchableOpacity
+              style={[styles.filterToggle, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
+              onPress={() => setShowAllStopRoutes(v => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={showAllStopRoutes ? 'Show selected route only' : 'Show all stop times'}
+            >
+              <Text style={[styles.filterToggleText, { color: c.tint }]}>
+                {showAllStopRoutes ? 'Show Selected Route Only' : 'All Stop Times'}
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {/* Times content. The day-browser row (Today/Tomorrow/...) is always
               visible so a rider can check any day's full schedule regardless
@@ -1775,7 +1840,7 @@ export default function MapScreen() {
                     ) : (
                       <View style={styles.stopTimesCenter}>
                         <Text style={[styles.stopTimesHint, { color: c.textSecondary }]}>
-                          No upcoming times for selected routes.{'\n'}Tap “Show all route times” above.
+                          No upcoming times for your selected route.{'\n'}Tap “All Stop Times” above.
                         </Text>
                       </View>
                     )
@@ -2511,6 +2576,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     minWidth: 48,
+  },
+  delayLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 4,
   },
   calloutMarkerWrap: {
     alignItems: 'center',
