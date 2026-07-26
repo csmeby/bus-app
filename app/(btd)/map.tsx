@@ -142,7 +142,7 @@ export default function BtdMapScreen() {
   const tint = BTD_TINT[scheme];
   const insets = useSafeAreaInsets();
 
-  const [selectedRoutes, setSelectedRoutes] = useState<string[]>(['all']);
+  const [selectedRoutes, setSelectedRoutes] = useState<string[]>([]); // Start with no routes selected
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [selectedStop, setSelectedStop] = useState<MergedStop | null>(null);
   const stopSheetAnim = useRef(new Animated.Value(0)).current;
@@ -161,29 +161,57 @@ export default function BtdMapScreen() {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const isWeekday = now.getDay() >= 1 && now.getDay() <= 5;
 
+  // Check if all routes are selected
+  const allSelected = selectedRoutes.length === ALL_BTD_ROUTES.length && 
+    selectedRoutes.every(r => ALL_BTD_ROUTES.includes(r));
+
   const toggleRoute = (route: string) => {
-    if (route === 'all') { setSelectedRoutes(['all']); return; }
-    let next = selectedRoutes.filter(r => r !== 'all');
-    next = next.includes(route) ? next.filter(r => r !== route) : [...next, route];
-    setSelectedRoutes(next.length === 0 ? ['all'] : next);
+    if (route === 'all') {
+      // If all routes are currently selected, deselect all
+      if (allSelected) {
+        setSelectedRoutes([]);
+      } else {
+        // Otherwise select all routes
+        setSelectedRoutes([...ALL_BTD_ROUTES]);
+      }
+      return;
+    }
+    
+    // If all routes are currently selected, and we're toggling an individual route,
+    // start with all routes and remove this one
+    if (allSelected) {
+      setSelectedRoutes(ALL_BTD_ROUTES.filter(r => r !== route));
+      return;
+    }
+    
+    // Normal toggle behavior when not in "all selected" mode
+    if (selectedRoutes.includes(route)) {
+      setSelectedRoutes(selectedRoutes.filter(r => r !== route));
+    } else {
+      setSelectedRoutes([...selectedRoutes, route]);
+    }
   };
 
-  const activeRouteNums = selectedRoutes.includes('all') ? ALL_BTD_ROUTES : selectedRoutes;
+  // Determine which routes are active for display
+  const activeRouteNums = allSelected ? ALL_BTD_ROUTES : selectedRoutes;
 
   const sheetBg = scheme === 'dark' ? '#1C1C1E' : '#FFFFFF';
   const panelBg = scheme === 'dark' ? 'rgba(18,18,20,0.97)' : 'rgba(255,255,255,0.97)';
   const panelBorder = scheme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
 
-  const routeLabel = selectedRoutes.includes('all')
-    ? 'All Routes'
-    : selectedRoutes.length === 1
-      ? `${btdRoutes[selectedRoutes[0]]?.name ?? selectedRoutes[0]} Route`
-      : `${selectedRoutes.length} Routes`;
+  const routeLabel = selectedRoutes.length === 0
+    ? 'No routes selected'
+    : allSelected
+      ? 'All Routes'
+      : selectedRoutes.length === 1
+        ? `${btdRoutes[selectedRoutes[0]]?.name ?? selectedRoutes[0]} Route`
+        : `${selectedRoutes.length} Routes`;
 
   // Every physical stop, merged across the currently-active route(s) - a
   // stop shared by more than one route (corridor overlaps, shared terminals)
   // shows once on the map but carries every route's own number/schedule.
   const mergedStops = useMemo(() => {
+    if (activeRouteNums.length === 0) return [];
     const byKey: Record<string, MergedStop> = {};
     for (const routeNum of activeRouteNums) {
       const route = btdRoutes[routeNum];
@@ -205,6 +233,7 @@ export default function BtdMapScreen() {
   // clutter in that case, but it does mean picking a route or two doesn't
   // pay the cost of computing arrows for routes not even being drawn.
   const routeArrows = useMemo(() => {
+    if (activeRouteNums.length === 0) return [];
     return activeRouteNums.map(routeNum => ({
       routeNum,
       color: btdRoutes[routeNum].color,
@@ -214,7 +243,7 @@ export default function BtdMapScreen() {
 
   // ── route bounds for zoom-to-fit ─────────────────────────────────────────
   const selectedRouteBounds = useMemo(() => {
-    const activeRoutes = selectedRoutes.includes('all') ? ALL_BTD_ROUTES : selectedRoutes;
+    const activeRoutes = allSelected ? ALL_BTD_ROUTES : selectedRoutes;
     if (activeRoutes.length === 0) return null;
     
     let minLat = Infinity, maxLat = -Infinity;
@@ -242,10 +271,10 @@ export default function BtdMapScreen() {
     return {
       latitude: (minLat + maxLat) / 2,
       longitude: (minLng + maxLng) / 2,
-      latitudeDelta: (maxLat - minLat) + latPadding * 2,
-      longitudeDelta: (maxLng - minLng) + lngPadding * 2,
+      latitudeDelta: Math.max((maxLat - minLat) + latPadding * 2, 0.01),
+      longitudeDelta: Math.max((maxLng - minLng) + lngPadding * 2, 0.01),
     };
-  }, [selectedRoutes]);
+  }, [selectedRoutes, allSelected]);
 
   // ── zoom to fit selected routes ──────────────────────────────────────────
   const previousSelectedRoutesRef = useRef<string[]>([]);
@@ -265,8 +294,19 @@ export default function BtdMapScreen() {
         animateTimeoutRef.current = null;
       }
       
-      // Don't animate if nothing is selected
-      if (selectedRoutes.length === 0) return;
+      // If no routes are selected, zoom out to show the whole area
+      if (selectedRoutes.length === 0) {
+        animateTimeoutRef.current = setTimeout(() => {
+          if (mapRef.current) {
+            mapRef.current.animateToRegion(
+              { latitude: 30.625, longitude: -96.32, latitudeDelta: 0.16, longitudeDelta: 0.16 },
+              800
+            );
+          }
+          animateTimeoutRef.current = null;
+        }, 100);
+        return;
+      }
       
       // Small delay to let polylines render
       animateTimeoutRef.current = setTimeout(() => {
@@ -295,6 +335,7 @@ export default function BtdMapScreen() {
     setSelectedStop(stop);
     Animated.spring(stopSheetAnim, { toValue: 1, useNativeDriver: true, tension: 80, friction: 10 }).start();
   }, [stopSheetAnim]);
+  
   const closeStop = useCallback(() => {
     Animated.spring(stopSheetAnim, { toValue: 0, useNativeDriver: true, tension: 80, friction: 10 }).start(() =>
       setSelectedStop(null)
@@ -425,24 +466,24 @@ export default function BtdMapScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.routeRow, selectedRoutes.includes('all') && { backgroundColor: tint + '15' }, { borderBottomColor: c.border }]}
+            style={[styles.routeRow, allSelected && { backgroundColor: tint + '15' }, { borderBottomColor: c.border }]}
             onPress={() => toggleRoute('all')}
             accessibilityRole="checkbox"
             accessibilityLabel="All routes"
-            accessibilityState={{ checked: selectedRoutes.includes('all') }}
+            accessibilityState={{ checked: allSelected }}
           >
-            <View style={[styles.routeTag, { backgroundColor: selectedRoutes.includes('all') ? tint : c.surfaceAlt }]}>
-              <Text style={[styles.routeTagText, { color: selectedRoutes.includes('all') ? '#fff' : c.textSecondary }]}>ALL</Text>
+            <View style={[styles.routeTag, { backgroundColor: allSelected ? tint : c.surfaceAlt }]}>
+              <Text style={[styles.routeTagText, { color: allSelected ? '#fff' : c.textSecondary }]}>ALL</Text>
             </View>
             <Text style={[styles.routeName, { color: c.text }]}>All Routes</Text>
-            {selectedRoutes.includes('all') && <Text style={[styles.checkmark, { color: tint }]}>✓</Text>}
+            {allSelected && <Text style={[styles.checkmark, { color: tint }]}>✓</Text>}
           </TouchableOpacity>
 
           <FlatList
             data={ALL_BTD_ROUTES}
             keyExtractor={item => item}
             renderItem={({ item }) => {
-              const selected = selectedRoutes.includes(item);
+              const selected = selectedRoutes.includes(item) || allSelected;
               const route = btdRoutes[item];
               return (
                 <TouchableOpacity

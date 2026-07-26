@@ -27,7 +27,7 @@ const DAY_FULL_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 
 const EMPTY_PREFS: AlertPrefs = { routeConfigs: [] };
 
-// Free-text HH:MM entry — the picker-chip version of this only offered
+// Free-text HH:MM entry - the picker-chip version of this only offered
 // fixed 30-minute increments, which is what this replaces. Keeps its own
 // draft text so a mid-typing value like "8:" doesn't get validated away
 // before the user's finished, only reformatting/committing on blur.
@@ -46,7 +46,7 @@ function TimeField({
       setText(formatted);
       if (formatted !== value) onChange(formatted);
     } else {
-      setText(value); // invalid — revert to the last good value
+      setText(value); // invalid - revert to the last good value
     }
   };
 
@@ -238,7 +238,7 @@ export default function NotificationsScreen() {
           <View style={[styles.noteCard, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
             <MaterialIcons name="info-outline" size={14} color={c.textSecondary} />
             <Text style={[styles.noteText, { color: c.textSecondary }]}>
-              Remote push isn’t set up yet for this app build (needs an EAS project ID — see
+              Remote push isn’t set up yet for this app build (needs an EAS project ID - see
               lib/notifications.ts). Local notifications, like the test below, still work fine.
             </Text>
           </View>
@@ -254,7 +254,7 @@ export default function NotificationsScreen() {
 
             {prefs.routeConfigs.length === 0 && (
               <Text style={[styles.sectionDesc, { color: c.textSecondary, fontStyle: 'italic' }]}>
-                No routes added yet — pick one below.
+                No routes added yet - pick one below.
               </Text>
             )}
 
@@ -392,7 +392,7 @@ export default function NotificationsScreen() {
                         </TouchableOpacity>
                       )}
 
-                      {/* Reroutes — independent of the schedule above, always fires */}
+                      {/* Reroutes - independent of the schedule above, always fires */}
                       <View style={[styles.row, { paddingHorizontal: 0, marginTop: 14 }]}>
                         <View style={styles.rowText}>
                           <Text style={[styles.rowLabel, { color: c.text }]}>Notify me about reroutes</Text>

@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { API_BASE } from '@/lib/api-base';
-import { NOTIFICATIONS_ENABLED_KEY, registerPushTokenWithServer } from '@/lib/notifications';
+import { NOTIFICATIONS_ENABLED_KEY, registerPushTokenWithServer, requestNotificationPermission } from '@/lib/notifications';
 import { setupGlobalErrorLogging } from '@/lib/error-logging';
 import { FavoritesProvider } from '@/context/favorites-context';
 import { ThemeProvider, useAppTheme } from '@/context/theme-context';
@@ -39,16 +39,30 @@ function RootLayoutInner() {
 export default function RootLayout() {
   useEffect(() => {
     (async () => {
-      // Re-registers the push token on every launch, but only if the user
-      // already opted in via More > Notifications — this app never asks for
-      // notification permission unprompted. Without this, a token rotated
-      // by Expo/reinstall would leave the device stuck receiving nothing
-      // until the user happened to revisit the Notifications screen, which
-      // matters most for reroute/delay alerts since those only ever land
-      // while the app is backgrounded or closed.
+      // Re-registers the push token on every launch when the user already
+      // opted in via More > Notifications. Without this, a token rotated by
+      // Expo/reinstall would leave the device stuck receiving nothing until
+      // the user happened to revisit the Notifications screen, which matters
+      // most for reroute/delay alerts since those only ever land while the
+      // app is backgrounded or closed.
       const enabled = await AsyncStorage.getItem(NOTIFICATIONS_ENABLED_KEY);
       if (enabled === 'true') {
         registerPushTokenWithServer(API_BASE).catch(() => {});
+        return;
+      }
+      // `enabled` is null only on a genuinely first-ever launch (the
+      // Notifications screen's own toggle always writes 'true' or 'false',
+      // never leaves this unset) — ask for permission right away instead of
+      // waiting for the rider to find the Notifications settings screen on
+      // their own. iOS only ever shows its own system prompt once per
+      // install regardless of how many times this is called, so there's no
+      // risk of re-nagging on later launches once they've answered it here.
+      if (enabled === null) {
+        const granted = await requestNotificationPermission();
+        await AsyncStorage.setItem(NOTIFICATIONS_ENABLED_KEY, granted ? 'true' : 'false');
+        if (granted) {
+          registerPushTokenWithServer(API_BASE).catch(() => {});
+        }
       }
     })();
   }, []);

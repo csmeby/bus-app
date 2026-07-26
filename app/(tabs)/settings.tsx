@@ -18,7 +18,7 @@ const MENU_SECTIONS: MenuItem[][] = [
     { href: '/theme', icon: 'brightness-6', label: 'Theme', description: 'Light, dark, or follow system' },
   ],
   [
-    { href: '/favorites', icon: 'star-outline', label: 'Favorite Routes', description: 'Pin routes to the top of the picker' },
+    { href: '/favorites', icon: 'star-outline', label: 'Favorite Routes', description: 'Pin routes to the top of the selector' },
     { href: '/notifications', icon: 'notifications-none', label: 'Notifications', description: 'Enable alerts for delays and reroutes' },
     { href: '/disruptions', icon: 'warning-amber', label: 'Service Disruptions', description: 'Construction reroutes and closures' },
     { href: '/help', icon: 'help-outline', label: 'Help Guide', description: 'Stop types and tips for riding the bus' },

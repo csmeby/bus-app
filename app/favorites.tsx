@@ -18,7 +18,7 @@ export default function FavoritesScreen() {
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
       <ScreenHeader title="Favorite Routes" bottomMargin={8} />
       <Text style={[styles.hint, { color: c.textSecondary }]}>
-        Favorited routes appear at the top of the route picker on the map.
+        Favorited routes appear at the top of the route selector on the map.
       </Text>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>

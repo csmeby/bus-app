@@ -29,11 +29,11 @@ import { cachedJsonFetch } from '@/lib/local-cache';
 import routePatterns from '../../routes_patterns.json';
 
 // Pre-rotated heading-arrow images (36 buckets, 10° apart) swapped via the
-// native `image` prop — the only churn-free way to change a marker's visual
+// native `image` prop - the only churn-free way to change a marker's visual
 // on react-native-maps (children + tracksViewChanges caused the fleet-wide
 // "TelemetryController::pullTransaction index beyond bounds" crash; keying on
 // heading mass-remounted every bus at once on every poll). Static requires
-// are mandatory — Metro can't resolve a computed path.
+// are mandatory - Metro can't resolve a computed path.
 const HEADING_ARROW_IMAGES: Record<string, number> = {
   '000': require('../../assets/images/heading_arrow_000.png'),
   '010': require('../../assets/images/heading_arrow_010.png'),
@@ -83,7 +83,7 @@ function headingArrowImage(heading: number | null | undefined): number {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-// Dedicated offline fallback for /route-patterns — deliberately separate from
+// Dedicated offline fallback for /route-patterns - deliberately separate from
 // lib/local-cache's generic cachedJsonFetch, which would treat a 200-with-{}
 // response (the server's "not validated yet" answer) as a legitimate value to
 // trust for its whole maxAge window. Only ever written with a verified
@@ -109,7 +109,7 @@ async function setCachedRoutePatterns(data: Record<string, any>): Promise<void> 
 
 function dimColor(hex: string): string {
   let h = hex.replace('#', '');
-  // '#abc' expands per-digit to 'aabbcc' — duplicating the whole group
+  // '#abc' expands per-digit to 'aabbcc' - duplicating the whole group
   // ('abcabc') reads as a completely different color.
   if (h.length === 3) h = h.replace(/./g, ch => ch + ch);
   return '#' + h.slice(0, 6) + '55';
@@ -191,7 +191,7 @@ function minutesUntil(raw: string): number | null {
 }
 
 // Upstream marks isEstimated=true on every departure it has live GPS data
-// for, not just the imminent one — a bus can be confidently tracked toward a
+// for, not just the imminent one - a bus can be confidently tracked toward a
 // stop it won't reach for another couple hours. Converting that to "118m"
 // reads as a countdown when it's really just a clock time; cap the live
 // countdown display to departures actually coming up soon and let anything
@@ -199,7 +199,7 @@ function minutesUntil(raw: string): number | null {
 const LIVE_ESTIMATE_MAX_MINUTES = 45;
 
 // Swaps in live-estimated departure times over their matching scheduled
-// entries — matched by closest absolute time within a 20-minute window, since
+// entries - matched by closest absolute time within a 20-minute window, since
 // there's no shared trip ID between the live (GetNextDepartTimes) and
 // schedule (GetStopSchedules) responses. Used so the full-day view opened
 // from a live row reflects the same "bus is running a few minutes late/early"
@@ -232,13 +232,13 @@ function liveMinutesLabel(t: DepartureTime): string | null {
   return mins === 0 ? 'Now' : `${mins} min`;
 }
 
-// Bus IDs from the API are like "B2002" — strip the leading "B" for display
+// Bus IDs from the API are like "B2002" - strip the leading "B" for display
 // ("Bus 2002" reads better than "Bus B2002").
 function busDisplayName(name: string): string {
   return name.replace(/^B(?=\d)/, '');
 }
 
-// Sort key for "numerical order" route lists — reads the leading digits of
+// Sort key for "numerical order" route lists - reads the leading digits of
 // a route short name ("01-04" -> 1, "12" -> 12) so routes sort by number
 // rather than lexicographically ("12" before "3"). Routes with no leading
 // digits sort last.
@@ -254,10 +254,10 @@ function formatCountdown(totalSeconds: number): string {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
-// bus.delay comes from the server's bus_delay.py — an approximate schedule
+// bus.delay comes from the server's bus_delay.py - an approximate schedule
 // offset (see that module's docstring for how, and its caveats), or null
 // when it couldn't be confidently computed. Deliberately not shown for a
-// null delay rather than falling back to "On time" — we don't actually know
+// null delay rather than falling back to "On time" - we don't actually know
 // that, we just don't know the delay either.
 function busDelayLabel(delay: { minutes: number } | null | undefined): string | null {
   if (!delay || typeof delay.minutes !== 'number') return null;
@@ -266,7 +266,7 @@ function busDelayLabel(delay: { minutes: number } | null | undefined): string | 
   return `${mins}m ${delay.minutes > 0 ? 'late' : 'early'}`;
 }
 
-// Upstream amenity shapes aren't pinned down yet — fall back through the
+// Upstream amenity shapes aren't pinned down yet - fall back through the
 // common field names rather than assuming one.
 function amenityLabel(item: any): string {
   if (typeof item === 'string') return item;
@@ -292,7 +292,7 @@ type Stop = {
   dirKeys: Record<string, string[]>; // route → [direction_key UUID, ...] (or synthetic pattern_N if the data lacks one)
   coordinate: { latitude: number; longitude: number };
   isTemporary: boolean; // stop_type === 1 (e.g. "T0410") - a temporary, not regularly-numbered stop
-  // route -> is this stop a timepoint FOR THAT ROUTE — a shared physical stop can be a
+  // route -> is this stop a timepoint FOR THAT ROUTE - a shared physical stop can be a
   // timepoint for some routes and not others (paths.py's TIMEPOINT_ROUTE_EXCLUSIONS), so
   // this can't collapse to one boolean per stop; the effective value depends on which
   // route(s) are currently selected (see isStopTimepointForSelection).
@@ -305,7 +305,7 @@ type RouteInfo = {
   directions: { key: string; name: string }[];
 };
 
-// Which "half" of a route a direction_key belongs to — sourced from the
+// Which "half" of a route a direction_key belongs to - sourced from the
 // bundled/live pattern's own object key ("inbound"/"outbound"/"pattern_N"),
 // NOT from the live /routes API's display name, which isn't consistently
 // "Inbound"/"Outbound" text (e.g. route 03's directions are named "to White
@@ -342,7 +342,7 @@ type RerouteDir = {
   baselineCoordinates: { latitude: number; longitude: number }[];
   unservedStops: string[];
   // Coordinates/names for unserved stops that appear on NO currently-live
-  // pattern (own route's or any sibling's) — without this the server can say
+  // pattern (own route's or any sibling's) - without this the server can say
   // a stop is skipped but the app has nothing to draw its marker at. Only
   // present on manually-set baselines (see reroute_watch.set_baseline).
   unservedStopDetails?: Record<string, { name?: string; lat: number; lng: number }>;
@@ -357,7 +357,7 @@ export default function MapScreen() {
   const { isFavorite } = useFavorites();
   const { enabled: unitCodesEnabled } = useUnitCodes();
 
-  // Whether we've been granted location permission — gates showsUserLocation
+  // Whether we've been granted location permission - gates showsUserLocation
   // so the map doesn't sit there silently failing to show a blue dot for
   // someone who never granted it (or hasn't been asked yet).
   const [locationGranted, setLocationGranted] = useState(false);
@@ -374,26 +374,33 @@ export default function MapScreen() {
   }, []);
 
   const [buses, setBuses] = useState<any[]>([]);
+  // Driven off the bus poll (every 10s - the most frequent heartbeat this
+  // screen has) rather than any single fetch, so a one-off blip doesn't
+  // flash the banner; only sustained failure does. Shown as a small banner
+  // near the panel below so a rider browsing offline knows what they're
+  // looking at is a saved snapshot, not live data.
+  const [isOffline, setIsOffline] = useState(false);
+  const busFetchFailuresRef = useRef(0);
 
   // Buses are plain Markers with a direct coordinate prop (see the
   // BusMarker/BusHeadingMarker components below), NOT Marker.Animated +
-  // AnimatedRegion — that combination was tried two different ways (parking
+  // AnimatedRegion - that combination was tried two different ways (parking
   // hidden buses at (0,0), then hiding via the `opacity` prop instead) and
   // BOTH failed to reliably show a bus again after a route switch, even
   // though debug logging proved the underlying coordinate value was always
   // correct. The glide between poll positions (see
   // useGlideCoordinate/GlidingBus below) is faked entirely in JS on top of
-  // this same plain Marker — re-rendering with a slightly-updated
-  // coordinate every animation frame — specifically so gliding doesn't
+  // this same plain Marker - re-rendering with a slightly-updated
+  // coordinate every animation frame - specifically so gliding doesn't
   // require touching Marker.Animated/AnimatedRegion at all.
   //
   // Visibility itself (mountedBuses below) mounts/unmounts a bus's Marker
-  // by route selection, same as stops (routeStops) — an EARLIER version of
+  // by route selection, same as stops (routeStops) - an EARLIER version of
   // this file instead kept every bus always-mounted and toggled `opacity`
   // to hide/show, on the theory that plain Marker "reliably honors opacity"
   // the way stops seemed to. In practice that had its own silent failure:
-  // after a bus had been opacity-hidden for a while — especially following
-  // a big excursion through "All Routes" — flipping opacity back up
+  // after a bus had been opacity-hidden for a while - especially following
+  // a big excursion through "All Routes" - flipping opacity back up
   // sometimes just never redisplayed it (no crash, no log, the "N active"
   // badge count still correct the whole time). Mount/unmount sidesteps that
   // by always giving a freshly-selected bus a brand-new native view rather
@@ -403,7 +410,7 @@ export default function MapScreen() {
   const [routeDirKinds, setRouteDirKinds] = useState<Record<string, Record<string, DirKind>>>({});
   const [stops, setStops] = useState<Stop[]>([]);
   // Backing store for `stops`, persisted across every applyPatterns() call
-  // this session — see the comment inside applyPatterns for why this can't
+  // this session - see the comment inside applyPatterns for why this can't
   // just be a fresh Map per call.
   const stopMapRef = useRef<Map<string, Stop>>(new Map()).current;
   const [routeInfo, setRouteInfo] = useState<Record<string, RouteInfo>>({});
@@ -415,29 +422,29 @@ export default function MapScreen() {
   // after the reroute clears. The overlay below renders from this (not
   // `reroutes` directly) with a STABLE key and hides inactive entries via
   // transparent/zero-width props, same trick used for the base route
-  // polylines — mounting/unmounting a Polyline (which plain `reroutes`
+  // polylines - mounting/unmounting a Polyline (which plain `reroutes`
   // would do the instant a detour ends) is what was crashing the app on
   // Android when a reroute cleared.
   const [reroutesGeometry, setReroutesGeometry] = useState<Record<string, Record<string, RerouteDir>>>({});
   // Route short names with an active service disruption per /news (construction
-  // reroutes, closures, etc) — shown as a warning badge in the route picker.
+  // reroutes, closures, etc) - shown as a warning badge in the route picker.
   const [disruptedRoutes, setDisruptedRoutes] = useState<Set<string>>(new Set());
 
   // Routes the user has chosen to see on the map. Starts empty on every
-  // launch — nothing is drawn until the rider actively picks a route.
+  // launch - nothing is drawn until the rider actively picks a route.
   const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set());
   const [routePickerOpen, setRoutePickerOpen] = useState(false);
 
   // Normally 'slide' (the sheet's own open/close animation). Forced to
   // 'none' for the one instant right before navigating to the disruptions
-  // screen — closing the modal via its usual slide-down WHILE the stack
+  // screen - closing the modal via its usual slide-down WHILE the stack
   // push transition also plays made that tap feel like two animations
   // stacked back to back instead of one. Reset to 'slide' every time the
   // picker is (re)opened so its normal dismiss (✕/backdrop tap) is unaffected.
   const [routePickerAnimation, setRoutePickerAnimation] = useState<'slide' | 'none'>('slide');
   // route -> the dirKey the rider has explicitly picked as "full strength"
   // for that route. Unset falls back to whichever pattern is labeled
-  // 'inbound' (see routeDirKinds / getPrimaryDir) — the rider can flip it
+  // 'inbound' (see routeDirKinds / getPrimaryDir) - the rider can flip it
   // per route since that label isn't always the real-world correct side
   // (see the DirKind comment above).
   const [routePrimaryDir, setRoutePrimaryDir] = useState<Record<string, string>>({});
@@ -468,7 +475,7 @@ export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
   // Markers/polylines are gated on this instead of mounting the instant this
   // component does. Without it, the very first `/buses` response (often
-  // 20-40 buses, 2 markers each — icon + heading arrow — mounting in one
+  // 20-40 buses, 2 markers each - icon + heading arrow - mounting in one
   // React commit) can land before the native map view's own shadow tree has
   // finished initializing, racing react-native-maps' Fabric mounting
   // instructions against the map's own setup. Matches the observed
@@ -481,17 +488,17 @@ export default function MapScreen() {
 
   // ── bus callout ──────────────────────────────────────────────────────────
   // react-native-maps' native <Callout> dismisses itself on basically any prop
-  // update to its parent Marker (coordinate, even unrelated re-renders) — tried
+  // update to its parent Marker (coordinate, even unrelated re-renders) - tried
   // freezing the callout's content, then also its marker's coordinate, and it
   // still closed within a poll or two. A JS-side overlay positioned via
   // pointForCoordinate was tried next, but it only repositions on
   // onRegionChangeComplete, so it visibly lagged behind/detached during a
   // drag gesture. The fix: render it as a second plain Marker (no Callout)
-  // sharing the bus's coordinate — a real native annotation pans/zooms in
+  // sharing the bus's coordinate - a real native annotation pans/zooms in
   // perfect lockstep with the map (same as the bus icon and heading-arrow
   // markers already do), and isn't a Callout, so nothing auto-dismisses it.
   const [selectedBusName, setSelectedBusName] = useState<string | null>(null);
-  // Last-known full data for the selected bus — keeps the callout showing
+  // Last-known full data for the selected bus - keeps the callout showing
   // something sensible for a poll or two if the bus briefly drops out of
   // /buses (GPS gap) instead of the content disappearing out from under the user.
   const [busSnapshot, setBusSnapshot] = useState<any | null>(null);
@@ -500,7 +507,7 @@ export default function MapScreen() {
   // ── route helpers ──────────────────────────────────────────────────────────
 
   // route -> true when the live /routes API direction UUIDs don't match any of
-  // the bundled polyline keys — i.e. routes_patterns.json is from a previous
+  // the bundled polyline keys - i.e. routes_patterns.json is from a previous
   // semester. When stale, direction-based filtering is fully disabled so the
   // app never shows the wrong direction at full opacity. Memoized: this used
   // to be a function re-doing the Object.keys().map() scan on every call, and
@@ -552,7 +559,7 @@ export default function MapScreen() {
   }, [routeInfo]);
 
   // /buses can carry duplicate entries for the same physical bus (seen
-  // across overlapping direction groups) — collapse to one marker per name.
+  // across overlapping direction groups) - collapse to one marker per name.
   const dedupedBuses = useMemo(() => {
     const m = new Map<string, any>();
     buses.forEach(b => { if (b?.name) m.set(b.name, b); });
@@ -563,13 +570,13 @@ export default function MapScreen() {
   // pattern already used for stops (see routeStops), instead of staying
   // permanently mounted and toggling `opacity` to hide/show. The
   // always-mounted-plus-opacity approach was deliberately chosen earlier
-  // this project specifically to avoid a native crash — but that crash was
+  // this project specifically to avoid a native crash - but that crash was
   // documented against Marker.Animated + AnimatedRegion, not against plain
   // Marker (which is what BusMarker/BusHeadingMarker already are, same as
   // StopMarker's mount/unmount-safe composed path). In practice, the
   // opacity approach turned out to have its own bug: after a bus's route
-  // had been hidden for a while — especially following a big excursion
-  // through "All Routes" — flipping its `opacity` back up sometimes just
+  // had been hidden for a while - especially following a big excursion
+  // through "All Routes" - flipping its `opacity` back up sometimes just
   // silently failed to redisplay it (no crash, no log, badge count still
   // correct), and only re-selecting through a slow, small-batch route
   // sequence would reliably bring it back. A fresh mount always renders
@@ -582,10 +589,10 @@ export default function MapScreen() {
 
   // Per-bus opacity within the mounted set: full strength on the route's
   // primary direction (or a circulator/stale route with no reliable
-  // direction split), a bit translucent on the other direction — same
+  // direction split), a bit translucent on the other direction - same
   // treatment as the route polylines below, and the same rider-picked
   // "primary" (see getPrimaryDir/routePrimaryDir). Direction changes only
-  // ever affect this opacity map, never mountedBuses above — so toggling
+  // ever affect this opacity map, never mountedBuses above - so toggling
   // direction can't trigger a mount/unmount, only a route (de)selection can.
   const busOpacity = useMemo(() => {
     const m = new Map<string, number>();
@@ -599,15 +606,15 @@ export default function MapScreen() {
     return m;
   }, [mountedBuses, staleRouteMap, routeDirKinds, getPrimaryDir]);
 
-  // Count for the "N active" badge — every currently-mounted (i.e.
+  // Count for the "N active" badge - every currently-mounted (i.e.
   // selected-route) bus, regardless of direction dimming.
   const visibleBusCount = mountedBuses.length;
 
   // Stop codes an active reroute on a currently-selected route is skipping
-  // right now — by definition these are MISSING from that route's live
+  // right now - by definition these are MISSING from that route's live
   // pattern (reroute_watch.py computes unservedStops server-side the same
   // way), so they'd otherwise vanish from the map the moment the detour
-  // starts. Scoped to selectedRoutes (not direction — see visibleStopCodes
+  // starts. Scoped to selectedRoutes (not direction - see visibleStopCodes
   // below for the direction-accurate version) so an unrelated route's
   // closure doesn't pull in a stop nobody's currently looking at.
   const unservedStopCodesForSelection = useMemo(() => {
@@ -619,7 +626,7 @@ export default function MapScreen() {
     return s;
   }, [reroutes, selectedRoutes]);
 
-  // Which stops render as markers AT ALL — tied to the CURRENT route
+  // Which stops render as markers AT ALL - tied to the CURRENT route
   // selection, same as buses (mountedBuses). A previous version of this
   // mounted a stop once its route had EVER been selected and never
   // unmounted it again, on the theory that removing an already-mounted
@@ -627,7 +634,7 @@ export default function MapScreen() {
   // held up for the "select individual routes" case, but broke down exactly
   // the way this comment now knows to check for: once "All Routes" gets
   // selected even once, EVERY route joins the ever-selected set, so EVERY
-  // stop in the system stays permanently mounted from then on — meaning
+  // stop in the system stays permanently mounted from then on - meaning
   // every subsequent route (de)selection becomes pure opacity toggling on
   // an already-mounted marker, which is the EXACT pattern that failed for
   // buses (opacity flipping back to visible silently not redisplaying).
@@ -640,12 +647,12 @@ export default function MapScreen() {
   );
 
   // Of the mounted routeStops, which should render at full opacity for the
-  // CURRENT direction pick — the part that's allowed to change on every
+  // CURRENT direction pick - the part that's allowed to change on every
   // direction toggle without unmounting anything (routeStops above doesn't
   // change). An unserved stop only counts if the reroute skipping it is on
   // the route's current primary direction (or the route's mapping is stale,
-  // in which case direction can't be trusted either way — see
-  // staleRouteMap) — otherwise a detour on the direction you're NOT looking
+  // in which case direction can't be trusted either way - see
+  // staleRouteMap) - otherwise a detour on the direction you're NOT looking
   // at would badge a stop that has nothing to do with what's on screen.
   const { visibleStopCodes, unservedVisibleStopCodes } = useMemo(() => {
     const visible = new Set<string>();
@@ -665,18 +672,18 @@ export default function MapScreen() {
       }
       // No `keys.length === 0` "show regardless" fallback here on purpose:
       // that case is a stop with NO live-pattern evidence of belonging to
-      // any specific direction of this route — either it's a
+      // any specific direction of this route - either it's a
       // reroute-seeded phantom (dirKeys deliberately left `{}`, see the
       // /reroutes effect) or a stop long since dropped from every live
-      // pattern (a route permanently rerouted around it — see the
+      // pattern (a route permanently rerouted around it - see the
       // "permanent route recovery" notes elsewhere in this codebase).
       // Showing it unconditionally on EVERY direction was exactly the bug:
       // a stop permanently closed on inbound kept showing as a plain,
       // unbadged stop on outbound too, because it no longer has an active
       // /reroutes entry (handled above) but still lingered in `stops` from
       // whenever it was last actually observed. staleRouteMap is a
-      // different, legitimate case — a whole route's live/bundled direction
-      // UUIDs don't line up, not a specific stop's phantom status — so that
+      // different, legitimate case - a whole route's live/bundled direction
+      // UUIDs don't line up, not a specific stop's phantom status - so that
       // still shows regardless.
       const show = stop.routes.some(r => {
         if (!selectedRoutes.has(r)) return false;
@@ -686,11 +693,11 @@ export default function MapScreen() {
         // Match by direction KIND (inbound/outbound/circulator), not raw
         // dirKey equality. stop.dirKeys accumulates additively across every
         // applyPatterns call this session and never prunes (see that
-        // function's comments) — so it can still hold an OLDER
+        // function's comments) - so it can still hold an OLDER
         // direction_key UUID for a route whose live keys have since
         // rotated. AggieSpirit does rotate these, confirmed on actively-
         // rerouted routes (see the reroute-matching notes elsewhere in this
-        // file) — and getPrimaryDir always reads the CURRENT routeLines
+        // file) - and getPrimaryDir always reads the CURRENT routeLines
         // keys, so a raw UUID equality check here would silently stop
         // matching the moment a route's keys rotated, hiding stops that are
         // still completely legitimate for the route's current primary
@@ -750,7 +757,7 @@ export default function MapScreen() {
       : raw;
 
     // Default view is scoped to the route(s) currently selected on the map
-    // — tapping a stop while "Route 12" is open shouldn't dump every route
+    // - tapping a stop while "Route 12" is open shouldn't dump every route
     // that happens to share this physical stop into the panel. "All Stop
     // Times" (showAllStopRoutes) lifts that filter. Fuzzy startsWith match
     // (not strict equality) so a combined route like "01-04" still matches
@@ -782,7 +789,7 @@ export default function MapScreen() {
   useEffect(() => {
     // Paint immediately from the bundled snapshot, then swap in the server's
     // freshly-built patterns (current-semester direction UUIDs) when they
-    // arrive. The bundle is only a cold-start/offline fallback — the server
+    // arrive. The bundle is only a cold-start/offline fallback - the server
     // copy is what keeps direction keys matching /routes and /buses.
     // No maxAgeMs here on purpose: the server returns {} until its own
     // rebuild has finished and validated, and cachedJsonFetch would persist
@@ -802,7 +809,7 @@ export default function MapScreen() {
           setCachedRoutePatterns(data);
         }
       } catch {
-        // Offline — fall back to the last-known-good server copy, if any
+        // Offline - fall back to the last-known-good server copy, if any
         // (still better than nothing, and never an empty/invalid snapshot
         // since only non-empty responses are ever written to this cache key).
         const cached = await getCachedRoutePatterns();
@@ -820,24 +827,24 @@ export default function MapScreen() {
     // Seeded from every stop ever merged in this session (bundled fallback,
     // then each live /route-patterns poll), NOT reset per call. A stop that's
     // currently CLOSED by a reroute is, by definition, missing from the live
-    // pattern's patternPoints — that's exactly how reroute_watch.py computes
+    // pattern's patternPoints - that's exactly how reroute_watch.py computes
     // unservedStops server-side. Resetting this map on every fetch meant the
     // very first live poll after app launch would silently drop any
     // currently-closed stop's only coordinate/name data (the bundled
     // fallback has it; the live pattern never will while the closure is
     // active), leaving unservedStopCodes naming a stop that had no marker
     // left to badge. routeLines stays a full per-call replace (below) since
-    // the live geometry — including an active reroute's actual driven path —
+    // the live geometry - including an active reroute's actual driven path -
     // must always win; only the stop catalog needs to be additive.
     const stopMap = stopMapRef;
     // Temp stops (stop_type===1, "T0410" etc.) are the one category that
-    // does NOT belong in the additive/never-shrinks model above — unlike a
+    // does NOT belong in the additive/never-shrinks model above - unlike a
     // regular stop (which can be legitimately absent from a single fetch
     // while a reroute has it closed, and must keep its old entry so the
     // unserved badge has something to attach to), a temp stop exists ONLY
     // because of an active reroute in the first place. Once a fetch stops
     // reporting it at all, the reroute that created it has ended and it
-    // should disappear permanently — otherwise it lingers in "All Routes"
+    // should disappear permanently - otherwise it lingers in "All Routes"
     // view (which renders the full unfiltered `stops` accumulation) forever
     // for the rest of the session, a phantom marker for a detour that's
     // long over. Tracked across this call's full route set (every route is
@@ -850,7 +857,7 @@ export default function MapScreen() {
       const routeKinds: Record<string, DirKind> = {};
 
       // Key by the real direction_key UUID (matches /routes live data) rather than
-      // guessing "inbound"/"outbound" from the pattern name — those labels are just
+      // guessing "inbound"/"outbound" from the pattern name - those labels are just
       // an artifact of the order paths.py happened to receive patterns in and don't
       // reflect the route's actual direction names (e.g. route 03 is "to White Creek"
       // / "to MSC", not inbound/outbound at all).
@@ -861,7 +868,7 @@ export default function MapScreen() {
       // arbitrary about which literal side of the road it lands on. It's the
       // only per-route "which of the (at most) two patterns is this" signal
       // available, so it's what drives the full-strength-vs-thinner styling
-      // — not a claim that it points the right way in the real world.
+      // - not a claim that it points the right way in the real world.
       Object.entries(patterns as Record<string, any>).forEach(([patternKey, pattern], idx) => {
         if (!pattern.coordinates) return;
         const dirKey: string = (pattern.direction_key || `pattern_${idx}`).toLowerCase();
@@ -903,7 +910,7 @@ export default function MapScreen() {
       kinds[route] = routeKinds;
     });
 
-    // Sweep temp stops this call no longer confirms — see seenTempCodes
+    // Sweep temp stops this call no longer confirms - see seenTempCodes
     // above. Runs after every applyPatterns call (bundled seed included),
     // so a stale temp stop baked into the bundled fallback snapshot gets
     // cleaned up the moment the first live fetch fails to reconfirm it.
@@ -917,7 +924,7 @@ export default function MapScreen() {
   }
 
   useEffect(() => {
-    // Route names/colors/directions barely ever change mid-semester — serve
+    // Route names/colors/directions barely ever change mid-semester - serve
     // the cached copy outright for up to a day, and fall back to it
     // regardless of age if the server's unreachable.
     // Fetch routes with a much shorter cache to prevent mismatch with fresh patterns
@@ -974,9 +981,15 @@ export default function MapScreen() {
 
         if (isMounted) {
           setBuses(normalizedData);
+          busFetchFailuresRef.current = 0;
+          setIsOffline(false);
         }
       } catch (e) {
         console.warn('Bus fetch failed:', e);
+        if (isMounted) {
+          busFetchFailuresRef.current += 1;
+          if (busFetchFailuresRef.current >= 2) setIsOffline(true);
+        }
       }
     };
 
@@ -1013,8 +1026,8 @@ export default function MapScreen() {
           setReroutes(normalized);
           // Seed the stop catalog with any unserved stop the app has no
           // coordinate for from any live pattern (see unservedStopDetails on
-          // RerouteDir). Added once and kept for the session — a stable,
-          // one-time mount, not per-poll churn — so the unserved badge has a
+          // RerouteDir). Added once and kept for the session - a stable,
+          // one-time mount, not per-poll churn - so the unserved badge has a
           // marker to attach to. Never overwrites a live-pattern stop.
           {
             let added = false;
@@ -1058,6 +1071,86 @@ export default function MapScreen() {
     return () => clearInterval(id);
   }, []);
 
+  // ── route bounds for zoom-to-fit ─────────────────────────────────────────
+  const selectedRouteBounds = useMemo(() => {
+    const activeRoutes = Array.from(selectedRoutes);
+    if (activeRoutes.length === 0) return null;
+    
+    let minLat = Infinity, maxLat = -Infinity;
+    let minLng = Infinity, maxLng = -Infinity;
+    let hasCoords = false;
+
+    activeRoutes.forEach(route => {
+      const dirs = routeLines[route];
+      if (!dirs) return;
+      
+      Object.values(dirs).forEach(coords => {
+        coords.forEach(({ latitude, longitude }) => {
+          minLat = Math.min(minLat, latitude);
+          maxLat = Math.max(maxLat, latitude);
+          minLng = Math.min(minLng, longitude);
+          maxLng = Math.max(maxLng, longitude);
+          hasCoords = true;
+        });
+      });
+    });
+
+    if (!hasCoords) return null;
+
+    const latPadding = (maxLat - minLat) * 0.2;
+    const lngPadding = (maxLng - minLng) * 0.2;
+
+    return {
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLng + maxLng) / 2,
+      latitudeDelta: Math.max((maxLat - minLat) + latPadding * 2, 0.005),
+      longitudeDelta: Math.max((maxLng - minLng) + lngPadding * 2, 0.005),
+    };
+  }, [selectedRoutes, routeLines]);
+
+  // ── zoom to fit selected routes ──────────────────────────────────────────
+  const previousSelectedRoutesRef = useRef<Set<string>>(new Set());
+  const animateTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const prev = previousSelectedRoutesRef.current;
+    
+    // Check if selection actually changed
+    const changed = selectedRoutes.size !== prev.size || 
+      Array.from(selectedRoutes).some(r => !prev.has(r));
+    
+    if (changed) {
+      // Clear any pending animation
+      if (animateTimeoutRef.current) {
+        clearTimeout(animateTimeoutRef.current);
+        animateTimeoutRef.current = null;
+      }
+      
+      // Don't animate if nothing is selected
+      if (selectedRoutes.size === 0) return;
+      
+      // Small delay to let polylines render
+      animateTimeoutRef.current = setTimeout(() => {
+        if (selectedRouteBounds && mapRef.current) {
+          mapRef.current.animateToRegion(selectedRouteBounds, 800);
+        }
+        animateTimeoutRef.current = null;
+      }, 100);
+    }
+    
+    previousSelectedRoutesRef.current = new Set(selectedRoutes);
+  }, [selectedRoutes, selectedRouteBounds]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (animateTimeoutRef.current) {
+        clearTimeout(animateTimeoutRef.current);
+        animateTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   // ── bus callout ────────────────────────────────────────────────────────────
 
   const closeBusCallout = useCallback(() => {
@@ -1065,7 +1158,7 @@ export default function MapScreen() {
     setBusSnapshot(null);
   }, []);
 
-  // Deselecting a bus's route unmounts its marker (see mountedBuses) — its
+  // Deselecting a bus's route unmounts its marker (see mountedBuses) - its
   // callout shouldn't keep floating over a bus that's no longer shown.
   useEffect(() => {
     if (!selectedBusName) return;
@@ -1088,7 +1181,7 @@ export default function MapScreen() {
     setStopScheduleLoading(true);
     try {
       // A given calendar date's published schedule doesn't change once
-      // fetched, so a stale cache fallback here is never actually wrong —
+      // fetched, so a stale cache fallback here is never actually wrong -
       // just keeps a previously-viewed day's schedule visible if the
       // server's unreachable on a repeat visit.
       const data = await cachedJsonFetch<StopTimesPayload>(
@@ -1126,7 +1219,7 @@ export default function MapScreen() {
 
     const relevantRoutes = stop.routes;
 
-    // Only the direction(s) that actually serve this stop — querying every
+    // Only the direction(s) that actually serve this stop - querying every
     // direction of the route would include ones whose path never comes here
     // (e.g. the inbound leg at a stop only the outbound leg passes).
     const dks = relevantRoutes.flatMap(r => stop.dirKeys[r] ?? []);
@@ -1165,21 +1258,21 @@ export default function MapScreen() {
   // specific date (stopDate set), the row already came from the full-day
   // schedule fetch, so it's complete. But the default live view's rows come
   // from GetNextDepartTimes, which AggieSpirit only ever returns the next
-  // ~3 upcoming departures for — not the whole day. So for that case, fetch
+  // ~3 upcoming departures for - not the whole day. So for that case, fetch
   // today's actual full schedule and swap in the matching route+direction's
   // complete departure list instead of just re-showing those same 3.
   const openExpandedEntry = useCallback(async (item: TimeEntry) => {
     const reqId = ++expandedReqIdRef.current;
     setExpandedEntry(item);
     // Tracked separately from stopDate, which can change/clear while this
-    // modal is still open — "is this time in the past" only makes sense
+    // modal is still open - "is this time in the past" only makes sense
     // relative to whichever date this specific entry's times actually belong to.
     const date = stopDate ?? toDateStr(new Date());
     setExpandedEntryDate(date);
     if (!selectedStop) return;
     // Always swap in the complete day's schedule for this route+direction:
     // the live view's rows only carry the next ~3 departures, and the today-
-    // schedule fallback's rows are filtered to upcoming times only — either
+    // schedule fallback's rows are filtered to upcoming times only - either
     // way the tapped row is incomplete for a "full day" view. Past times
     // render dimmed (see the isPast style in the modal) rather than hidden.
     try {
@@ -1187,7 +1280,7 @@ export default function MapScreen() {
         `${API_BASE}/stop/${selectedStop.code}/schedule?date=${date}`,
         `stop-schedule:${selectedStop.code}:${date}`,
       );
-      // Modal closed (or reopened for another row) while this was in flight —
+      // Modal closed (or reopened for another row) while this was in flight -
       // setting state here would pop the dismissed modal back open.
       if (expandedReqIdRef.current !== reqId) return;
       const entries = Array.isArray(data?.entries) ? data.entries : [];
@@ -1212,7 +1305,7 @@ export default function MapScreen() {
   }, [stopPanelAnim]);
 
   const openBusCallout = useCallback((bus: any) => {
-    // Only one panel at a time — opening a bus while the stop sheet is open
+    // Only one panel at a time - opening a bus while the stop sheet is open
     // would otherwise show both at once.
     if (selectedStop) closeStopPanel();
     setSelectedBusName(bus.name);
@@ -1274,12 +1367,12 @@ export default function MapScreen() {
     };
   }, [selectedBus, routeLines]);
 
-  // The callout marker's tracksViewChanges was left hard-`true` (its content —
-  // passengers/off-route/unit — updates live), but that means every re-render
+  // The callout marker's tracksViewChanges was left hard-`true` (its content -
+  // passengers/off-route/unit - updates live), but that means every re-render
   // while it's open forces react-native-maps to re-snapshot a marker with rich
   // children, which under this app's Fabric/New Architecture setup is the same
   // native-mounting crash family already hit and fixed elsewhere in this file
-  // — just triggered by opening a callout instead of a bus poll. Same fix:
+  // - just triggered by opening a callout instead of a bus poll. Same fix:
   // pulse tracksViewChanges only when the callout's actual visible content
   // changes (or first opens), not continuously.
   const [calloutRefreshPulse, setCalloutRefreshPulse] = useState(false);
@@ -1292,7 +1385,7 @@ export default function MapScreen() {
 
   // ── timepoint hold countdown ───────────────────────────────────────────────
 
-  // A bus is "holding" at the selected stop if /buses says so for it — see
+  // A bus is "holding" at the selected stop if /buses says so for it - see
   // hold_times.py on the server, which only flags this when a bus is within
   // ~40m of a timepoint stop AND is early relative to its scheduled departure.
   const stopHoldBus = useMemo(() => {
@@ -1311,7 +1404,7 @@ export default function MapScreen() {
   }, [stopHoldBus]);
 
   // Reference point for the depleting bar fill: "how much hold time was left
-  // when we first saw this hold" — recomputed only when the hold's target
+  // when we first saw this hold" - recomputed only when the hold's target
   // (scheduledDepartTime) changes, not on every tick.
   const holdBaselineRef = useRef<{ key: string; totalSeconds: number } | null>(null);
   if (stopHoldBus?.hold) {
@@ -1351,7 +1444,7 @@ export default function MapScreen() {
         }}
         onMapReady={() => setMapReady(true)}
       >
-        {/* Nothing below mounts until the native map view itself is ready —
+        {/* Nothing below mounts until the native map view itself is ready -
             see mapReady above for why. */}
         {mapReady && <>
         {/* Always render ALL polylines, for every route whether selected or
@@ -1363,7 +1456,7 @@ export default function MapScreen() {
             draws at full strength; the other direction draws thinner and
             dimmed so it still reads as part of the route without competing
             with the primary line. Which direction counts as primary is the
-            rider's own per-route pick — see getPrimaryDir/routePrimaryDir. */}
+            rider's own per-route pick - see getPrimaryDir/routePrimaryDir. */}
         {Object.entries(routeLines).flatMap(([route, dirs]) => {
           const color = routeColors[route] ?? '#888888';
           const stale = !!staleRouteMap[route];
@@ -1388,13 +1481,13 @@ export default function MapScreen() {
           });
         })}
 
-        {/* Reroute overlays — for each rerouted direction of a visible route:
+        {/* Reroute overlays - for each rerouted direction of a visible route:
             the path buses are ACTUALLY driving right now, solid in the route
             color, plus the regular path as a red dashed line so the detour is
             unmistakable (same treatment the official transit site uses).
             Rendered from `reroutesGeometry` (every entry ever seen, geometry
             kept around after the detour clears) rather than the live
-            `reroutes` state, and never conditionally omitted — same
+            `reroutes` state, and never conditionally omitted - same
             always-mounted, STABLE-key treatment as the regular route
             polylines above. Driving this straight off `reroutes` used to
             unmount the Polyline the instant a reroute ended, which is
@@ -1412,7 +1505,7 @@ export default function MapScreen() {
             const kind = routeDirKinds[route]?.[dk] ?? 'circulator';
             const isSecondary = !stale && kind !== 'circulator' && dk !== primary;
             // The red "this is what you're missing" dashed baseline only
-            // makes sense for the direction currently at full strength — on
+            // makes sense for the direction currently at full strength - on
             // the secondary direction it's dropped entirely (not just
             // thinned) rather than cluttering the dimmed line with a second,
             // differently-colored one.
@@ -1420,7 +1513,7 @@ export default function MapScreen() {
             const baseColor = baseActive ? '#DC2626' : 'rgba(0,0,0,0)';
             const curColor = !active ? 'rgba(0,0,0,0)' : isSecondary ? dimColor(color) : color;
             // STABLE key (route+dk only), matching every other polyline in
-            // this file — coordinates update in place via props instead of
+            // this file - coordinates update in place via props instead of
             // remounting.
             return [
               <Polyline
@@ -1442,12 +1535,12 @@ export default function MapScreen() {
           });
         })}
 
-        {/* Bus markers — rendered after stop markers below so buses always draw on
+        {/* Bus markers - rendered after stop markers below so buses always draw on
             top when a bus and a stop coincide, reinforced by the explicit zIndex.
             Only buses on a currently-selected route mount at all (see
             mountedBuses above); direction-level dimming within that set is
             opacity only, via busOpacity. Rendered via GlidingBus (icon +
-            heading arrow sharing one glide position — see
+            heading arrow sharing one glide position - see
             useGlideCoordinate), each of which owns its own
             tracksViewChanges lifecycle scoped to ITS OWN content changes. */}
         {mountedBuses.map(bus => {
@@ -1465,12 +1558,12 @@ export default function MapScreen() {
           );
         })}
 
-        {/* Stop markers — every stop in routeStops (route-selection scoped,
+        {/* Stop markers - every stop in routeStops (route-selection scoped,
             see above) stays mounted regardless of direction; direction-level
             visibility is opacity only, via visibleStopCodes. Rendered via
             the StopMarker subcomponent below, which owns its own `ready`
             state (and self-heal pulse) so tracksViewChanges only ever locks
-            to false AFTER its icon has actually laid out — see StopMarker
+            to false AFTER its icon has actually laid out - see StopMarker
             for why. */}
         {routeStops.map(stop => (
           <StopMarker
@@ -1484,13 +1577,13 @@ export default function MapScreen() {
           />
         ))}
 
-        {/* Bus callout — a second plain Marker (not <Callout>) sharing the
+        {/* Bus callout - a second plain Marker (not <Callout>) sharing the
             selected bus's coordinate, anchored so its bottom edge (the pointer
             tip) sits right above the bus icon. Being a real marker, it pans/
             zooms with the map exactly like every other marker here; being a
             Marker and not a Callout, nothing auto-dismisses it on updates.
             tracksViewChanges is on since its content (speed/passengers/hold)
-            changes live — acceptable for the one currently-selected bus. */}
+            changes live - acceptable for the one currently-selected bus. */}
         {selectedBusName && selectedBus && busSheetStats && (
           <Marker
             key={`${selectedBus.name}-callout`}
@@ -1538,7 +1631,7 @@ export default function MapScreen() {
                       (server-side, see unit_assignment.py). When the match
                       isn't certain (a "best guess" at server-restart cold
                       start, with no per-bus signal to disambiguate) it's
-                      shown with a "?" and muted — still useful, but not
+                      shown with a "?" and muted - still useful, but not
                       presented as fact. */}
                   {unitCodesEnabled && !!selectedBus.unit && (
                     <Text style={[styles.calloutUnit, { color: selectedBus.unitConfirmed ? c.textSecondary : c.tint }]}>
@@ -1597,6 +1690,17 @@ export default function MapScreen() {
           <Text style={[styles.routeSelectorText, { color: c.text }]} numberOfLines={1}>{routeSelectorLabel}</Text>
           <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
         </TouchableOpacity>
+        {isOffline && (
+          <View
+            style={styles.offlineBanner}
+            accessible
+            accessibilityRole="alert"
+            accessibilityLabel="No connection. Showing saved routes - bus positions and live times aren't available right now."
+          >
+            <MaterialIcons name="cloud-off" size={13} color="#92400E" />
+            <Text style={styles.offlineBannerText}>No connection - showing saved routes</Text>
+          </View>
+        )}
       </View>
 
       {/* ── Route selector modal ───────────────────────────────────────────── */}
@@ -1749,7 +1853,7 @@ export default function MapScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Timepoint hold countdown — bus is early and waiting here for its scheduled leave time */}
+          {/* Timepoint hold countdown - bus is early and waiting here for its scheduled leave time */}
           {stopHoldBus && holdSecondsRemaining != null && holdSecondsRemaining > 0 && (
             <View
               style={styles.holdBanner}
@@ -1771,7 +1875,7 @@ export default function MapScreen() {
             </View>
           )}
 
-          {/* Route filter toggle — only worth showing when this physical
+          {/* Route filter toggle - only worth showing when this physical
               stop actually serves more than one route; otherwise "All Stop
               Times" would just show the exact same single row. */}
           {selectedStop.routes.length > 1 && (
@@ -1789,7 +1893,7 @@ export default function MapScreen() {
 
           {/* Times content. The day-browser row (Today/Tomorrow/...) is always
               visible so a rider can check any day's full schedule regardless
-              of whether live estimates are currently showing — it used to be
+              of whether live estimates are currently showing - it used to be
               hidden any time live times were available, which was most of
               the time. Live view is shown when nobody's tapped a date chip
               yet (stopDate === null); tapping any chip (including "Today")
@@ -1909,11 +2013,11 @@ export default function MapScreen() {
               </TouchableOpacity>
             </View>
             {/* Cancelled and already-passed times both read as "not boardable
-                anymore", but for different reasons — keep them visually
+                anymore", but for different reasons - keep them visually
                 distinct rather than collapsing to one muted style: cancelled
                 gets a red strikethrough (it never ran), passed just dims
                 (it ran fine, it's just behind us already). Only meaningful
-                for today's date — a future day has nothing "passed" yet. */}
+                for today's date - a future day has nothing "passed" yet. */}
             <FlatList
               data={expandedEntry.departureTimes}
               keyExtractor={(_, i) => String(i)}
@@ -1923,7 +2027,7 @@ export default function MapScreen() {
                 const isToday = expandedEntryDate === toDateStr(new Date());
                 const parsed = new Date(t.time);
                 const isPast = !t.isCancelled && isToday && !isNaN(parsed.getTime()) && parsed.getTime() < Date.now();
-                // This view shows the actual clock time, not a countdown — if
+                // This view shows the actual clock time, not a countdown - if
                 // the bus is running 2 min late, that's "6:02" here (already
                 // the live-adjusted time, via mergeLiveEstimates), just with
                 // the dot marking it as an estimate rather than the raw
@@ -2060,13 +2164,13 @@ export default function MapScreen() {
 
 // ── sub-component: bus marker ───────────────────────────────────────────────
 //
-// Self-contained refresh lifecycle, same pattern as StopMarker below —
+// Self-contained refresh lifecycle, same pattern as StopMarker below -
 // deliberately NOT driven by any shared/global pulse state. The previous
 // version gated every bus marker's tracksViewChanges on one shared boolean
 // that got flipped both on every 10s bus poll AND on every selectedRoutes
 // change. Toggling a second route on meant a batch of buses flipping
 // opacity 0→1 at the SAME instant every bus in the fleet (visible or not)
-// was told to re-snapshot — a large simultaneous batch of native mounting
+// was told to re-snapshot - a large simultaneous batch of native mounting
 // instructions, the same crash pattern documented elsewhere in this file
 // for heading arrows and stop markers. Scoping the pulse to each marker's
 // own content (this bus's fill color only) means opening a route only ever
@@ -2074,12 +2178,12 @@ export default function MapScreen() {
 // affected, and never touches tracksViewChanges for the fleet at once.
 // Interpolates a bus's displayed lat/lon toward its latest polled position
 // over `durationMs` instead of snapping there instantly, WITHOUT
-// react-native-maps' Marker.Animated/AnimatedRegion — that combination is
+// react-native-maps' Marker.Animated/AnimatedRegion - that combination is
 // documented elsewhere in this file as having twice, independently, failed
 // to reliably show a bus again after its route was deselected then
 // reselected, even though the underlying coordinate was provably correct.
 // This drives the exact same plain, non-Animated <Marker coordinate={...}>
-// this file already relies on for reliable opacity/visibility — the glide
+// this file already relies on for reliable opacity/visibility - the glide
 // is faked entirely in JS by re-rendering with a slightly-updated coordinate
 // on every animation frame, so there's no Animated-specific native code path
 // for opacity to ever break inside. currentRef (not React state) holds the
@@ -2157,7 +2261,7 @@ function BusMarker({
 
 // Heading-arrow marker. Same self-contained approach as BusMarker above,
 // pulsing tracksViewChanges only when THIS bus's own heading value changes
-// (a new arrow image needs rasterizing) — never in lockstep with any other
+// (a new arrow image needs rasterizing) - never in lockstep with any other
 // bus. Image-only marker (no child View), so there's no onLayout to hook;
 // "ready" locks after two animation frames post-mount instead, which is
 // enough headroom for the image prop to have actually been applied natively
@@ -2227,25 +2331,25 @@ function GlidingBus({
 // That tells MapKit/react-native-maps to snapshot the custom child View
 // exactly once, at mount, and never re-snapshot it. If that one snapshot
 // races the child View's own layout/paint (the same mount-time race already
-// documented and fixed for the bus icon and heading-arrow markers above —
+// documented and fixed for the bus icon and heading-arrow markers above -
 // see BusMarker/BusHeadingMarker), MapKit has nothing to rasterize and
 // silently substitutes its own default red drop-pin instead. Because
 // tracksViewChanges never flipped back to true, that marker was stuck
-// showing the stock pin for the rest of its mounted life — and worse, the
+// showing the stock pin for the rest of its mounted life - and worse, the
 // stock pin ignores the `opacity` prop this file relies on for hiding
 // deselected-route stops, so a stop that lost the race could show a full-
 // opacity red pin on a route that isn't even selected. This is the
 // "occasional default iPhone pin sitting on a closed route" symptom.
 //
 // The onLayout+double-rAF timing fix below (still used for the badged path)
-// cut the frequency down but never eliminated it — under a bursty mount
+// cut the frequency down but never eliminated it - under a bursty mount
 // (hundreds of stops landing in one commit) or heavy native load during a
 // zoom/pan, the race is still there to lose, and a lost marker's cached
 // default-pin bitmap is exactly the kind of thing iOS can also duplicate
 // visually under memory/tile-cache pressure. The real fix, for the vast
 // majority of stops that carry no badge: skip the composed-child-view
 // snapshot entirely by rendering the icon via the native `image` prop
-// instead — same churn-free technique BusHeadingMarker already uses for
+// instead - same churn-free technique BusHeadingMarker already uses for
 // this identical race, and one that doesn't need a snapshot to go right in
 // the first place because there's no child view to rasterize. Only a
 // closed/unserved stop, which still needs its little badge overlaid, pays
@@ -2269,7 +2373,7 @@ function StopMarker({
   const [ready, setReady] = useState(false);
 
   // Re-arms readiness whenever this marker flips between the plain
-  // image-only rendering and the composed badge rendering below — each is a
+  // image-only rendering and the composed badge rendering below - each is a
   // different native representation needing its own settle-and-snapshot
   // pass, so a stale `ready` from the other mode can't be inherited across
   // a badge toggle. Drives readiness outright for the plain path (no child
@@ -2293,14 +2397,14 @@ function StopMarker({
       <Marker
         coordinate={stop.coordinate}
         anchor={{ x: 0.5, y: 0.5 }}
-        // Marker's `image` prop renders at the asset's own intrinsic size —
+        // Marker's `image` prop renders at the asset's own intrinsic size -
         // unlike an <Image style={{width,height}}>, it does NOT scale down
         // to fit a style box. temp_stop.png/timepoint.png/stop.png are
-        // full-resolution source art (used at much bigger sizes elsewhere —
+        // full-resolution source art (used at much bigger sizes elsewhere -
         // help.tsx's legend, and the composed badge marker path below,
         // both of which size them via a normal <Image style>), so using
         // them directly here rendered every plain stop at native pixel
-        // size — comically huge. These *_marker variants are pre-scaled
+        // size - comically huge. These *_marker variants are pre-scaled
         // (with @2x/@3x siblings) to the point size this icon used to
         // render at via style, specifically for this prop.
         image={stop.isTemporary
@@ -2325,7 +2429,7 @@ function StopMarker({
     <Marker
       coordinate={stop.coordinate}
       anchor={{ x: 0.5, y: 0.5 }}
-      // !ready covers the initial mount snapshot — see onLayout below.
+      // !ready covers the initial mount snapshot - see onLayout below.
       tracksViewChanges={!ready}
       opacity={isVisible ? 1 : 0}
       tappable={isVisible}
@@ -2377,7 +2481,7 @@ function TimeEntryRow({ item, routeColors, c, onPress }: { item: TimeEntry; rout
   const color = routeColors[rn] ?? '#500000';
   const times = item.departureTimes ?? [];
 
-  // Screen-reader summary of the visible chips — the raw children would read
+  // Screen-reader summary of the visible chips - the raw children would read
   // as a jumble of symbols (live dots, "›", strikethroughs) without context.
   const timesLabel = times.length === 0
     ? 'no upcoming times'
@@ -2471,7 +2575,7 @@ const styles = StyleSheet.create({
   },
   stopIcon: { width: 26, height: 26, resizeMode: 'contain' },
   // temp_stop.png / timepoint.png are solid-filled signage art (no padding,
-  // like bus.png) rather than stop.png's padded pin shape — sized down so
+  // like bus.png) rather than stop.png's padded pin shape - sized down so
   // they read as "a bit bigger than a regular stop" rather than oversized.
   tempStopIcon: { width: 20, height: 20, resizeMode: 'contain' },
   timepointIcon: { width: 17, height: 17, resizeMode: 'contain' },
@@ -2638,6 +2742,19 @@ const styles = StyleSheet.create({
   },
   routeSelectorText: { fontSize: 15, fontWeight: '500', flex: 1 },
   chevron: { fontSize: 20, fontWeight: '300', marginLeft: 4 },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FBBF24',
+  },
+  offlineBannerText: { fontSize: 12, fontWeight: '600', color: '#92400E' },
 
   // Shared bottom sheet chrome
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
@@ -2714,7 +2831,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   dirChipFullText: { fontSize: 12, fontWeight: '600' },
-  // Visually distinct from the direction toggle above it — warning-tinted so
+  // Visually distinct from the direction toggle above it - warning-tinted so
   // it reads as "something needs attention" at a glance.
   disruptionButton: {
     flexDirection: 'row',

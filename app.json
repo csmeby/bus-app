@@ -1,16 +1,16 @@
 {
   "expo": {
     "name": "Century Tree Transit",
-    "slug": "bus",
+    "slug": "ctt",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "bus",
+    "scheme": "ctt",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.csmeby.bus",
+      "bundleIdentifier": "com.csmeby.ctt",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
@@ -24,7 +24,7 @@
       }
     },
     "android": {
-      "package": "com.csmeby.bus",
+      "package": "com.csmeby.ctt",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -47,12 +47,9 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#F2F2F7",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#0D0D0E"
           }
         }
       ],

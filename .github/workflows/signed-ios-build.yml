@@ -1,4 +1,4 @@
-name: Signed iOS build (for sideloading)
+name: Signed iOS build (TestFlight / App Store / sideloading)
 
 # Manual trigger only — a macOS build isn't needed on every push, and macOS
 # runner minutes cost 10x a normal Linux runner even on the free tier, so
@@ -23,16 +23,34 @@ name: Signed iOS build (for sideloading)
 # of the .mobileprovision file at build time (see "Read profile UUID/bundle
 # ID" below) — no need to hardcode or keep those in sync as secrets.
 #
-# Export method is "development" (a Development-signed build tied to
-# whichever device UDIDs are registered in the profile) — matches sideloading
-# straight onto your own phone for testing rather than distributing to
-# others. Switch EXPORT_METHOD below to "ad-hoc" later if that need ever
-# comes up (same secrets, just a differently-typed profile/cert).
+# Export method is picked at trigger time (Actions tab → Run workflow →
+# export_method dropdown) since the cert/profile pair you upload as secrets
+# has to MATCH whichever method you pick:
+#   development  → an "Apple Development" cert + a Development profile
+#                  (device-UDID-limited, same as Xcode's local run/debug signing)
+#   ad-hoc       → an "Apple Distribution" cert + an Ad Hoc profile
+#                  (also device-UDID-limited, but this is what direct
+#                  sideload tools like AltStore actually expect)
+#   app-store    → the SAME "Apple Distribution" cert + an App Store
+#                  Connect profile — for TestFlight/App Store submission,
+#                  not sideloading
+# BUILD_CERTIFICATE_BASE64/BUILD_PROVISION_PROFILE_BASE64 always just hold
+# whichever ONE pair you currently have loaded — swap the GitHub secrets'
+# contents when you switch which method you're building for.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      export_method:
+        description: "Export method (must match the cert/profile pair currently in your secrets)"
+        type: choice
+        default: app-store
+        options:
+          - app-store
+          - ad-hoc
+          - development
 
 env:
-  EXPORT_METHOD: development
+  EXPORT_METHOD: ${{ inputs.export_method }}
 
 jobs:
   build:
@@ -172,7 +190,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: bus-signed-ipa
+          name: century-tree-transit-signed-ipa
           path: ios/build/ipa/*.ipa
           retention-days: 14
 

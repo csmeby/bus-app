@@ -3,6 +3,8 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+import { reportCrash } from './error-logging';
+
 // Shared with app/_layout.tsx (silent re-registration on launch) and
 // app/notifications.tsx (the settings toggle) so both read/write the same
 // AsyncStorage key.
@@ -76,7 +78,16 @@ export async function getExpoPushToken(): Promise<string | null> {
     const token = await Notifications.getExpoPushTokenAsync({ projectId });
     return token.data;
   } catch (e) {
-    console.warn('[notifications] Failed to get push token:', e);
+    // A standalone (non-EAS-built) app most likely means: the App ID's
+    // "Push Notifications" capability isn't enabled on the Apple Developer
+    // portal yet, or the provisioning profile was generated before it was
+    // enabled and needs regenerating. Reported to the server (not just
+    // console.warn) since a sideloaded build has nobody watching Metro —
+    // check bus/client_crashes.log for this on a device that isn't
+    // receiving pushes.
+    const err = e instanceof Error ? e : new Error(String(e));
+    console.warn('[notifications] Failed to get push token:', err);
+    reportCrash({ source: 'push-token', message: err.message, stack: err.stack });
     return null;
   }
 }

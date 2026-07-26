@@ -28,7 +28,7 @@ const LEGEND_ITEMS = [
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const WEEKDAY_FULL_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-// Local calendar date, not toISOString() (UTC) — avoids the day-shift bug
+// Local calendar date, not toISOString() (UTC) - avoids the day-shift bug
 // that broke multi-day schedule lookups on the main map screen.
 function toDateStr(d: Date): string {
   const y = d.getFullYear();
@@ -109,7 +109,7 @@ export default function CalendarScreen() {
     const end = toDateStr(new Date(year, month + 1, 0));
     setLoading(true);
     // The academic calendar is published well in advance and doesn't change
-    // day to day — serve the cached month outright for a while, and fall
+    // day to day - serve the cached month outright for a while, and fall
     // back to it regardless of age if the server's unreachable.
     cachedJsonFetch<any>(`${API_BASE}/calendar/days?start=${start}&end=${end}`, `calendar:${start}:${end}`, {
       maxAgeMs: 24 * 60 * 60 * 1000,
@@ -266,7 +266,7 @@ export default function CalendarScreen() {
               ))
             ) : (
               <Text style={[styles.noEventsText, { color: c.textSecondary }]}>
-                No scheduled transit changes today — normal posted hours apply.
+                No scheduled transit changes today - normal posted hours apply.
               </Text>
             )}
           </ScrollView>
