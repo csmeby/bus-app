@@ -137,7 +137,20 @@ jobs:
           WORKSPACE=$(ls -d *.xcworkspace | head -n1)
           SCHEME=$(basename "$WORKSPACE" .xcworkspace)
 
-          echo "Using workspace $WORKSPACE, scheme $SCHEME"
+          # Must match whichever cert type the export_method's profile pairs
+          # with (see the top-of-file comment) — without this, Xcode falls
+          # back to the generated project's own default identity (an "iOS
+          # Development" alias) regardless of which cert/profile was
+          # actually imported, which is exactly what produced:
+          # "No signing certificate 'iOS Development' found" on an
+          # ad-hoc/app-store run using a Distribution cert.
+          if [ "$EXPORT_METHOD" = "development" ]; then
+            CODE_SIGN_IDENTITY="Apple Development"
+          else
+            CODE_SIGN_IDENTITY="Apple Distribution"
+          fi
+
+          echo "Using workspace $WORKSPACE, scheme $SCHEME, identity $CODE_SIGN_IDENTITY"
 
           xcodebuild archive \
             -workspace "$WORKSPACE" \
@@ -146,6 +159,7 @@ jobs:
             -sdk iphoneos \
             -archivePath build/App.xcarchive \
             CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID"
 
