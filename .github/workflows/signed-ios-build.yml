@@ -19,6 +19,19 @@ name: Signed iOS build (TestFlight / App Store / sideloading)
 #   APPLE_TEAM_ID                 your 10-character Team ID (Apple Developer
 #                                  account → Membership)
 #
+# Only needed for export_method=app-store-connect, to auto-upload the build
+# to App Store Connect/TestFlight (skipped entirely for ad-hoc/development —
+# see the upload step's `if:`). This is a DIFFERENT credential from the APNs
+# .p8 used for push notifications — don't reuse that one.
+#   APP_STORE_CONNECT_API_KEY_BASE64
+#                                 base64 of an App Store Connect API key .p8
+#                                 (appstoreconnect.apple.com → Users and
+#                                 Access → Integrations → Keys → generate one
+#                                 with the "App Manager" role — the .p8 only
+#                                 downloads ONCE, save it before leaving that page)
+#   APP_STORE_CONNECT_KEY_ID      shown next to the key on that same page
+#   APP_STORE_CONNECT_ISSUER_ID   shown at the top of that same Keys page
+#
 # The provisioning profile's UUID and bundle identifier are read directly out
 # of the .mobileprovision file at build time (see "Read profile UUID/bundle
 # ID" below) — no need to hardcode or keep those in sync as secrets.
@@ -247,8 +260,38 @@ jobs:
           path: ios/build/ipa/*.ipa
           retention-days: 14
 
+      # Only for a real TestFlight/App Store run — uploading an ad-hoc or
+      # development build here would just get rejected by App Store Connect
+      # (wrong profile type), so this is skipped entirely for those methods
+      # rather than attempting and failing.
+      - name: Upload to App Store Connect
+        if: ${{ inputs.export_method == 'app-store-connect' }}
+        working-directory: ios
+        env:
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          IPA_PATH=$(find build/ipa -name "*.ipa" | head -n1)
+
+          # altool looks for the API key in one of a few fixed locations by
+          # naming convention — AuthKey_<key-id>.p8 under
+          # ~/.appstoreconnect/private_keys is the one that doesn't collide
+          # with anything else this job touches.
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo -n "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode \
+            -o ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
+
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA_PATH" \
+            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+
       # Best-effort cleanup so the throwaway keychain doesn't linger past
       # this job even if an earlier step already failed.
       - name: Clean up keychain
         if: always()
-        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+          rm -rf ~/.appstoreconnect/private_keys || true
