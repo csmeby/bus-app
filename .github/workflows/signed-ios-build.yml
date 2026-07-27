@@ -69,10 +69,21 @@ env:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
+
+      # App Store Connect now rejects uploads not built with the iOS 26 SDK
+      # (Xcode 26+) — macos-15's default Xcode was 16.4 (iOS 18.5 SDK), which
+      # got a hard 409 validation failure on upload. macos-latest tracks
+      # GitHub's newest runner image, and this pins the actual Xcode
+      # selection explicitly (multiple Xcode versions are normally
+      # preinstalled side by side on these images) so it doesn't silently
+      # drift back to an old default again later.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
       - uses: actions/setup-node@v4
         with:
