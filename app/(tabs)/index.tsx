@@ -1695,10 +1695,10 @@ export default function MapScreen() {
             style={styles.offlineBanner}
             accessible
             accessibilityRole="alert"
-            accessibilityLabel="No connection. Showing saved routes - bus positions and live times aren't available right now."
+            accessibilityLabel="No connection. Showing saved routes. Bus positions and live times aren't available right now."
           >
             <MaterialIcons name="cloud-off" size={13} color="#92400E" />
-            <Text style={styles.offlineBannerText}>No connection - showing saved routes</Text>
+            <Text style={styles.offlineBannerText}>No connection. Showing saved routes</Text>
           </View>
         )}
       </View>

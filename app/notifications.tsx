@@ -238,13 +238,12 @@ export default function NotificationsScreen() {
           <>
             <Text style={[styles.sectionTitle, { color: c.text }]} accessibilityRole="header">My Routes</Text>
             <Text style={[styles.sectionDesc, { color: c.textSecondary }]}>
-              Add a route to set up its alerts. Detours always come right away for
-              any added route; delay alerts follow that route's own threshold and schedule below.
+              Add a route to set up its alerts.
             </Text>
 
             {prefs.routeConfigs.length === 0 && (
               <Text style={[styles.sectionDesc, { color: c.textSecondary, fontStyle: 'italic' }]}>
-                No routes added yet - pick one below.
+                No routes added yet. Pick one below.
               </Text>
             )}
 

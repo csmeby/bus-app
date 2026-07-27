@@ -70,6 +70,18 @@ jobs:
       - name: Prebuild native iOS project
         run: npx expo prebuild --platform ios --no-install
 
+      # Diagnostic: prints exactly what expo prebuild generated, straight
+      # from app.json's plugin config — settles whether "no valid
+      # aps-environment entitlement string" is because this file is wrong
+      # (still says development, or is missing the key) vs. something going
+      # wrong later at codesign/export time despite this being correct.
+      - name: Print generated entitlements (pre-signing)
+        working-directory: ios
+        run: |
+          ENTITLEMENTS_FILE=$(find . -maxdepth 2 -name "*.entitlements" | head -n1)
+          echo "Entitlements file: $ENTITLEMENTS_FILE"
+          cat "$ENTITLEMENTS_FILE"
+
       - name: Install CocoaPods dependencies
         working-directory: ios
         run: |
@@ -163,6 +175,17 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID"
 
+      # Diagnostic: what actually got embedded in the ARCHIVED app's code
+      # signature — the authoritative answer to whether aps-environment made
+      # it through codesign, independent of what the source .entitlements
+      # file said pre-signing.
+      - name: Print archived app's signed entitlements
+        working-directory: ios
+        run: |
+          APP_PATH=$(find build/App.xcarchive/Products/Applications -maxdepth 1 -name "*.app" | head -n1)
+          echo "App: $APP_PATH"
+          codesign -d --entitlements :- "$APP_PATH" 2>&1
+
       - name: Write ExportOptions.plist
         working-directory: ios
         env:
@@ -201,6 +224,20 @@ jobs:
       - name: Locate exported .ipa
         working-directory: ios
         run: find build/ipa -name "*.ipa"
+
+      # Diagnostic: entitlements in the FINAL exported .ipa — export can
+      # theoretically re-sign/repackage, so this is the true last word on
+      # what ships, in case it ever differs from the archive step above.
+      - name: Print exported .ipa's signed entitlements
+        working-directory: ios
+        run: |
+          IPA_PATH=$(find build/ipa -name "*.ipa" | head -n1)
+          rm -rf /tmp/ipa_check
+          mkdir -p /tmp/ipa_check
+          unzip -q "$IPA_PATH" -d /tmp/ipa_check
+          APP_PATH=$(find /tmp/ipa_check/Payload -maxdepth 1 -name "*.app" | head -n1)
+          echo "App: $APP_PATH"
+          codesign -d --entitlements :- "$APP_PATH" 2>&1
 
       - uses: actions/upload-artifact@v4
         with:
