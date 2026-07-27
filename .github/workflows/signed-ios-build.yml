@@ -31,9 +31,11 @@ name: Signed iOS build (TestFlight / App Store / sideloading)
 #   ad-hoc       → an "Apple Distribution" cert + an Ad Hoc profile
 #                  (also device-UDID-limited, but this is what direct
 #                  sideload tools like AltStore actually expect)
-#   app-store    → the SAME "Apple Distribution" cert + an App Store
+#   app-store-connect → the SAME "Apple Distribution" cert + an App Store
 #                  Connect profile — for TestFlight/App Store submission,
-#                  not sideloading
+#                  not sideloading. ("app-store" is the same thing but is
+#                  the OLD/deprecated name for this method as of Xcode 16 —
+#                  still accepted for back-compat, but use the current name.)
 # BUILD_CERTIFICATE_BASE64/BUILD_PROVISION_PROFILE_BASE64 always just hold
 # whichever ONE pair you currently have loaded — swap the GitHub secrets'
 # contents when you switch which method you're building for.
@@ -43,9 +45,9 @@ on:
       export_method:
         description: "Export method (must match the cert/profile pair currently in your secrets)"
         type: choice
-        default: app-store
+        default: app-store-connect
         options:
-          - app-store
+          - app-store-connect
           - ad-hoc
           - development
 
@@ -155,7 +157,7 @@ jobs:
           # Development" alias) regardless of which cert/profile was
           # actually imported, which is exactly what produced:
           # "No signing certificate 'iOS Development' found" on an
-          # ad-hoc/app-store run using a Distribution cert.
+          # ad-hoc/app-store-connect run using a Distribution cert.
           if [ "$EXPORT_METHOD" = "development" ]; then
             CODE_SIGN_IDENTITY="Apple Development"
           else
