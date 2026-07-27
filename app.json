@@ -59,7 +59,12 @@
           "locationWhenInUsePermission": "Used to set your starting point in Plan a Ride and show your position on the map."
         }
       ],
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "mode": "production"
+        }
+      ],
       "expo-web-browser"
     ],
     "experiments": {

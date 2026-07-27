@@ -234,22 +234,12 @@ export default function NotificationsScreen() {
           </View>
         </View>
 
-        {enabled && pushAvailable === false && (
-          <View style={[styles.noteCard, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
-            <MaterialIcons name="info-outline" size={14} color={c.textSecondary} />
-            <Text style={[styles.noteText, { color: c.textSecondary }]}>
-              Remote push isn’t set up yet for this app build (needs an EAS project ID - see
-              lib/notifications.ts). Local notifications, like the test below, still work fine.
-            </Text>
-          </View>
-        )}
-
         {enabled && (
           <>
             <Text style={[styles.sectionTitle, { color: c.text }]} accessibilityRole="header">My Routes</Text>
             <Text style={[styles.sectionDesc, { color: c.textSecondary }]}>
               Add a route to set up its alerts. Detours always come right away for
-              any added route; delay alerts follow that route’s own threshold and schedule below.
+              any added route; delay alerts follow that route's own threshold and schedule below.
             </Text>
 
             {prefs.routeConfigs.length === 0 && (
