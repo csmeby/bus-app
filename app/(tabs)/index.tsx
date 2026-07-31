@@ -43,7 +43,14 @@ const STOP_LIST_HEIGHT_EXPANDED = Math.round(SCREEN_HEIGHT * 0.5);
 // commit). A plain setTimeout between batches, not back-to-back
 // requestAnimationFrame ticks - the interop's finalizeUpdates: runs off its
 // own queue, not strictly in lockstep with JS frame callbacks.
-const MAP_MOUNT_BATCH_SIZE = 3;
+// 3 was the tuned-safe value back when each plain stop mounted a single
+// native Marker. StopMarker's plain (unbadged) path now mounts a second,
+// invisible tap-target Marker per stop (see the tap_target_blank.png note
+// there) - roughly doubling native child-inserts per route for a batch that
+// includes plain stops, so the same insert-desync crash this batching exists
+// to avoid started showing up again a few batches into "All Routes". Halved
+// to keep each commit's native insert count in the same ballpark as before.
+const MAP_MOUNT_BATCH_SIZE = 1;
 const MAP_MOUNT_BATCH_DELAY_MS = 50;
 
 // Pre-rotated heading-arrow images (36 buckets, 10° apart) swapped via the
@@ -518,6 +525,55 @@ export default function MapScreen() {
   // instruction batch sized for a tree that doesn't exist yet) and its
   // "random" flakiness (a timing race, not a deterministic bug) exactly.
   const [mapReady, setMapReady] = useState(false);
+
+  // Which routes' Polylines are actually allowed to mount into AIRMap once
+  // mapReady flips true. Separate from routeLines/routeLinesRef's own
+  // staggering in applyPatterns - that only staggers the JS *state* update,
+  // which does nothing for the native tree while the `mapReady && <>` block
+  // below is still false (nothing in that block exists in the tree yet, so
+  // nothing has mounted). By the time mapReady actually fires, applyPatterns'
+  // bundled-snapshot staggering (~7 batches * 50ms for ~21 routes) has
+  // usually already finished, so routeLines is already fully populated - and
+  // gating the whole polyline list on a single mapReady boolean means all of
+  // it lands in one React commit the instant mapReady turns true. Same
+  // "insertReactSubview: too many children in one commit" crash as
+  // selectAllRoutesGradually, just triggered on launch instead of by a tap.
+  // This decouples "is the data ready" from "has it been revealed to the
+  // native view yet" by draining routeLines' route keys into the map at the
+  // same MAP_MOUNT_BATCH_SIZE/MAP_MOUNT_BATCH_DELAY_MS pace, regardless of
+  // how much of routeLines already existed when mapReady fired.
+  const [revealedRoutes, setRevealedRoutes] = useState<Set<string>>(new Set());
+  const revealRoutesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const pending = Object.keys(routeLines).filter(r => !revealedRoutes.has(r));
+    if (pending.length === 0) return;
+    let cursor = 0;
+    const step = () => {
+      const batch = pending.slice(cursor, cursor + MAP_MOUNT_BATCH_SIZE);
+      setRevealedRoutes(prev => {
+        const next = new Set(prev);
+        batch.forEach(r => next.add(r));
+        return next;
+      });
+      cursor += MAP_MOUNT_BATCH_SIZE;
+      revealRoutesTimerRef.current =
+        cursor < pending.length ? setTimeout(step, MAP_MOUNT_BATCH_DELAY_MS) : null;
+    };
+    step();
+    return () => {
+      if (revealRoutesTimerRef.current) {
+        clearTimeout(revealRoutesTimerRef.current);
+        revealRoutesTimerRef.current = null;
+      }
+    };
+    // Only re-run when mapReady flips or routeLines gains routes - reading
+    // revealedRoutes here (to compute `pending`) without listing it would be
+    // stale otherwise, but listing it would re-trigger this effect off of
+    // its own setRevealedRoutes calls above and restart the drain mid-flight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, routeLines]);
 
   const [holdTick, setHoldTick] = useState(() => Date.now());
 
@@ -1637,7 +1693,7 @@ export default function MapScreen() {
             dimmed so it still reads as part of the route without competing
             with the primary line. Which direction counts as primary is the
             rider's own per-route pick - see getPrimaryDir/routePrimaryDir. */}
-        {Object.entries(routeLines).flatMap(([route, dirs]) => {
+        {Object.entries(routeLines).filter(([route]) => revealedRoutes.has(route)).flatMap(([route, dirs]) => {
           const color = routeColors[route] ?? '#888888';
           const stale = !!staleRouteMap[route];
           const selected = selectedRoutes.has(route);
@@ -1673,7 +1729,7 @@ export default function MapScreen() {
             unmount the Polyline the instant a reroute ended, which is
             exactly the native ghost/crash bug the base-polyline comment
             above describes. */}
-        {Object.entries(reroutesGeometry).flatMap(([route, dirs]) => {
+        {Object.entries(reroutesGeometry).filter(([route]) => revealedRoutes.has(route)).flatMap(([route, dirs]) => {
           const color = routeColors[route] ?? '#888888';
           const stale = !!staleRouteMap[route];
           const routeSelected = selectedRoutes.has(route);
@@ -2595,34 +2651,63 @@ function StopMarker({
 
   if (!badged) {
     return (
-      <Marker
-        coordinate={stop.coordinate}
-        anchor={{ x: 0.5, y: 0.5 }}
-        // Marker's `image` prop renders at the asset's own intrinsic size -
-        // unlike an <Image style={{width,height}}>, it does NOT scale down
-        // to fit a style box. temp_stop.png/timepoint.png/stop.png are
-        // full-resolution source art (used at much bigger sizes elsewhere -
-        // help.tsx's legend, and the composed badge marker path below,
-        // both of which size them via a normal <Image style>), so using
-        // them directly here rendered every plain stop at native pixel
-        // size - comically huge. These *_marker variants are pre-scaled
-        // (with @2x/@3x siblings) to the point size this icon used to
-        // render at via style, specifically for this prop.
-        image={stop.isTemporary
-          ? require('../../assets/images/temp_stop_marker.png')
-          : isTimepoint
-          ? require('../../assets/images/timepoint_marker.png')
-          : require('../../assets/images/stop_marker.png')}
-        opacity={isVisible ? 1 : 0}
-        tappable={isVisible}
-        tracksViewChanges={!ready}
-        zIndex={0}
-        onPress={() => isVisible && onPress()}
-        accessible
-        accessibilityRole="button"
-        accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}`}
-        accessibilityHint="Shows departure times for this stop"
-      />
+      <>
+        <Marker
+          coordinate={stop.coordinate}
+          anchor={{ x: 0.5, y: 0.5 }}
+          // Marker's `image` prop renders at the asset's own intrinsic size -
+          // unlike an <Image style={{width,height}}>, it does NOT scale down
+          // to fit a style box. temp_stop.png/timepoint.png/stop.png are
+          // full-resolution source art (used at much bigger sizes elsewhere -
+          // help.tsx's legend, and the composed badge marker path below,
+          // both of which size them via a normal <Image style>), so using
+          // them directly here rendered every plain stop at native pixel
+          // size - comically huge. These *_marker variants are pre-scaled
+          // (with @2x/@3x siblings) to the point size this icon used to
+          // render at via style, specifically for this prop.
+          //
+          // Tap target: deliberately NOT handled here. Padding this asset's
+          // own canvas would grow the tap target, but stop_marker.png etc.
+          // are shared with other call sites at their own sizes - baking
+          // margin into the source file would shift/resize the icon
+          // everywhere else it's used. Purely visual now; tappable is fixed
+          // false and onPress is dropped - see the invisible sibling Marker
+          // below, which owns tap handling instead.
+          image={stop.isTemporary
+            ? require('../../assets/images/temp_stop_marker.png')
+            : isTimepoint
+            ? require('../../assets/images/timepoint_marker.png')
+            : require('../../assets/images/stop_marker.png')}
+          opacity={isVisible ? 1 : 0}
+          tappable={false}
+          tracksViewChanges={!ready}
+          zIndex={0}
+        />
+        {/* Invisible tap-target marker, same coordinate, same native `image`
+            prop path (no child view - no composed-view snapshot race, same
+            as the icon marker above), just a bigger fully-transparent PNG.
+            react-native-maps hit-tests a marker's full image bounding box
+            rather than per-pixel alpha, so a transparent image this size
+            genuinely grows the tappable area without a single visible pixel
+            changing. tap_target_blank.png is a brand-new, dedicated asset -
+            nothing else in the app references it, so padding it further
+            later is always safe. tracksViewChanges is hard-false: the image
+            never changes, so there's nothing to ever re-snapshot. */}
+        <Marker
+          coordinate={stop.coordinate}
+          anchor={{ x: 0.5, y: 0.5 }}
+          image={require('../../assets/images/tap_target_blank.png')}
+          opacity={isVisible ? 1 : 0}
+          tappable={isVisible}
+          tracksViewChanges={false}
+          zIndex={1}
+          onPress={() => isVisible && onPress()}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}`}
+          accessibilityHint="Shows departure times for this stop"
+        />
+      </>
     );
   }
 
@@ -2637,39 +2722,41 @@ function StopMarker({
       zIndex={0}
       onPress={() => isVisible && onPress()}
     >
-      <View
-        onLayout={() => {
-          // One more frame after layout so the Image has actually had a
-          // chance to paint before the snapshot locks in.
-          requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));
-        }}
-        accessible
-        accessibilityRole="button"
-        accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}${isUnserved ? ', not served right now due to a detour' : ', closed'}`}
-        accessibilityHint="Shows departure times for this stop"
-      >
-        <Image
-          source={stop.isTemporary
-            ? require('../../assets/images/temp_stop.png')
-            : isTimepoint
-            ? require('../../assets/images/timepoint.png')
-            : require('../../assets/images/stop.png')}
-          style={[
-            stop.isTemporary
-              ? styles.tempStopIcon
+      <View style={styles.stopBadgeMarkerWrap}>
+        <View
+          onLayout={() => {
+            // One more frame after layout so the Image has actually had a
+            // chance to paint before the snapshot locks in.
+            requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));
+          }}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}${isUnserved ? ', not served right now due to a detour' : ', closed'}`}
+          accessibilityHint="Shows departure times for this stop"
+        >
+          <Image
+            source={stop.isTemporary
+              ? require('../../assets/images/temp_stop.png')
               : isTimepoint
-              ? styles.timepointIcon
-              : styles.stopIcon,
-            styles.closedStopIcon,
-          ]}
-        />
-        {isUnserved ? (
-          <View style={styles.unservedStopBadge}>
-            <Text style={styles.unservedStopBadgeText}>✕</Text>
-          </View>
-        ) : (
-          <View style={styles.closedStopBadge} />
-        )}
+              ? require('../../assets/images/timepoint.png')
+              : require('../../assets/images/stop.png')}
+            style={[
+              stop.isTemporary
+                ? styles.tempStopIcon
+                : isTimepoint
+                ? styles.timepointIcon
+                : styles.stopIcon,
+              styles.closedStopIcon,
+            ]}
+          />
+          {isUnserved ? (
+            <View style={styles.unservedStopBadge}>
+              <Text style={styles.unservedStopBadgeText}>✕</Text>
+            </View>
+          ) : (
+            <View style={styles.closedStopBadge} />
+          )}
+        </View>
       </View>
     </Marker>
   );
@@ -2765,7 +2852,7 @@ const styles = StyleSheet.create({
   // Wrap is bigger than the icon it centers (24x24) purely to grow the tap
   // target - anchor stays {0.5, 0.5} so the extra padding is invisible and
   // doesn't shift the icon's visual position.
-  busMarkerWrap: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  busMarkerWrap: { width: 60, height: 60, alignItems: 'center', justifyContent: 'center' },
   busCircleFill: { position: 'absolute', width: 20, height: 20, borderRadius: 10 },
   // Separate ring drawn over the image's own thin baked-in outline, since we
   // can't restyle stroke width/color inside the PNG itself from RN.
@@ -2778,6 +2865,12 @@ const styles = StyleSheet.create({
     borderColor: '#000000',
   },
   stopIcon: { width: 26, height: 26, resizeMode: 'contain' },
+  // Same tap-target trick as busMarkerWrap above - only applies to the
+  // composed/badged (closed or unserved) stop marker path, since the plain
+  // path below renders via the native `image` prop and has no child view to
+  // wrap (its tap target is fixed to the PNG's own canvas size instead - see
+  // the note on the plain <Marker image={...}> below).
+  stopBadgeMarkerWrap: { width: 60, height: 60, alignItems: 'center', justifyContent: 'center' },
   // temp_stop.png / timepoint.png are solid-filled signage art (no padding,
   // like bus.png) rather than stop.png's padded pin shape - sized down so
   // they read as "a bit bigger than a regular stop" rather than oversized.
