@@ -2722,41 +2722,39 @@ function StopMarker({
       zIndex={0}
       onPress={() => isVisible && onPress()}
     >
-      <View style={styles.stopBadgeMarkerWrap}>
-        <View
-          onLayout={() => {
-            // One more frame after layout so the Image has actually had a
-            // chance to paint before the snapshot locks in.
-            requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));
-          }}
-          accessible
-          accessibilityRole="button"
-          accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}${isUnserved ? ', not served right now due to a detour' : ', closed'}`}
-          accessibilityHint="Shows departure times for this stop"
-        >
-          <Image
-            source={stop.isTemporary
-              ? require('../../assets/images/temp_stop.png')
+      <View
+        onLayout={() => {
+          // One more frame after layout so the Image has actually had a
+          // chance to paint before the snapshot locks in.
+          requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));
+        }}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}${isUnserved ? ', not served right now due to a detour' : ', closed'}`}
+        accessibilityHint="Shows departure times for this stop"
+      >
+        <Image
+          source={stop.isTemporary
+            ? require('../../assets/images/temp_stop.png')
+            : isTimepoint
+            ? require('../../assets/images/timepoint.png')
+            : require('../../assets/images/stop.png')}
+          style={[
+            stop.isTemporary
+              ? styles.tempStopIcon
               : isTimepoint
-              ? require('../../assets/images/timepoint.png')
-              : require('../../assets/images/stop.png')}
-            style={[
-              stop.isTemporary
-                ? styles.tempStopIcon
-                : isTimepoint
-                ? styles.timepointIcon
-                : styles.stopIcon,
-              styles.closedStopIcon,
-            ]}
-          />
-          {isUnserved ? (
-            <View style={styles.unservedStopBadge}>
-              <Text style={styles.unservedStopBadgeText}>✕</Text>
-            </View>
-          ) : (
-            <View style={styles.closedStopBadge} />
-          )}
-        </View>
+              ? styles.timepointIcon
+              : styles.stopIcon,
+            styles.closedStopIcon,
+          ]}
+        />
+        {isUnserved ? (
+          <View style={styles.unservedStopBadge}>
+            <Text style={styles.unservedStopBadgeText}>✕</Text>
+          </View>
+        ) : (
+          <View style={styles.closedStopBadge} />
+        )}
       </View>
     </Marker>
   );
@@ -2865,12 +2863,6 @@ const styles = StyleSheet.create({
     borderColor: '#000000',
   },
   stopIcon: { width: 26, height: 26, resizeMode: 'contain' },
-  // Same tap-target trick as busMarkerWrap above - only applies to the
-  // composed/badged (closed or unserved) stop marker path, since the plain
-  // path below renders via the native `image` prop and has no child view to
-  // wrap (its tap target is fixed to the PNG's own canvas size instead - see
-  // the note on the plain <Marker image={...}> below).
-  stopBadgeMarkerWrap: { width: 60, height: 60, alignItems: 'center', justifyContent: 'center' },
   // temp_stop.png / timepoint.png are solid-filled signage art (no padding,
   // like bus.png) rather than stop.png's padded pin shape - sized down so
   // they read as "a bit bigger than a regular stop" rather than oversized.
