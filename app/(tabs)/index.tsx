@@ -43,14 +43,7 @@ const STOP_LIST_HEIGHT_EXPANDED = Math.round(SCREEN_HEIGHT * 0.5);
 // commit). A plain setTimeout between batches, not back-to-back
 // requestAnimationFrame ticks - the interop's finalizeUpdates: runs off its
 // own queue, not strictly in lockstep with JS frame callbacks.
-// 3 was the tuned-safe value back when each plain stop mounted a single
-// native Marker. StopMarker's plain (unbadged) path now mounts a second,
-// invisible tap-target Marker per stop (see the tap_target_blank.png note
-// there) - roughly doubling native child-inserts per route for a batch that
-// includes plain stops, so the same insert-desync crash this batching exists
-// to avoid started showing up again a few batches into "All Routes". Halved
-// to keep each commit's native insert count in the same ballpark as before.
-const MAP_MOUNT_BATCH_SIZE = 1;
+const MAP_MOUNT_BATCH_SIZE = 3;
 const MAP_MOUNT_BATCH_DELAY_MS = 50;
 
 // Pre-rotated heading-arrow images (36 buckets, 10° apart) swapped via the
@@ -2651,63 +2644,47 @@ function StopMarker({
 
   if (!badged) {
     return (
-      <>
-        <Marker
-          coordinate={stop.coordinate}
-          anchor={{ x: 0.5, y: 0.5 }}
-          // Marker's `image` prop renders at the asset's own intrinsic size -
-          // unlike an <Image style={{width,height}}>, it does NOT scale down
-          // to fit a style box. temp_stop.png/timepoint.png/stop.png are
-          // full-resolution source art (used at much bigger sizes elsewhere -
-          // help.tsx's legend, and the composed badge marker path below,
-          // both of which size them via a normal <Image style>), so using
-          // them directly here rendered every plain stop at native pixel
-          // size - comically huge. These *_marker variants are pre-scaled
-          // (with @2x/@3x siblings) to the point size this icon used to
-          // render at via style, specifically for this prop.
-          //
-          // Tap target: deliberately NOT handled here. Padding this asset's
-          // own canvas would grow the tap target, but stop_marker.png etc.
-          // are shared with other call sites at their own sizes - baking
-          // margin into the source file would shift/resize the icon
-          // everywhere else it's used. Purely visual now; tappable is fixed
-          // false and onPress is dropped - see the invisible sibling Marker
-          // below, which owns tap handling instead.
-          image={stop.isTemporary
-            ? require('../../assets/images/temp_stop_marker.png')
-            : isTimepoint
-            ? require('../../assets/images/timepoint_marker.png')
-            : require('../../assets/images/stop_marker.png')}
-          opacity={isVisible ? 1 : 0}
-          tappable={false}
-          tracksViewChanges={!ready}
-          zIndex={0}
-        />
-        {/* Invisible tap-target marker, same coordinate, same native `image`
-            prop path (no child view - no composed-view snapshot race, same
-            as the icon marker above), just a bigger fully-transparent PNG.
-            react-native-maps hit-tests a marker's full image bounding box
-            rather than per-pixel alpha, so a transparent image this size
-            genuinely grows the tappable area without a single visible pixel
-            changing. tap_target_blank.png is a brand-new, dedicated asset -
-            nothing else in the app references it, so padding it further
-            later is always safe. tracksViewChanges is hard-false: the image
-            never changes, so there's nothing to ever re-snapshot. */}
-        <Marker
-          coordinate={stop.coordinate}
-          anchor={{ x: 0.5, y: 0.5 }}
-          image={require('../../assets/images/tap_target_blank.png')}
-          opacity={isVisible ? 1 : 0}
-          tappable={isVisible}
-          tracksViewChanges={false}
-          zIndex={1}
-          onPress={() => isVisible && onPress()}
-          accessible
-          accessibilityRole="button"
-          accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}`}
-          accessibilityHint="Shows departure times for this stop"
-        />
-      </>
+      <Marker
+        coordinate={stop.coordinate}
+        anchor={{ x: 0.5, y: 0.5 }}
+        // Marker's `image` prop renders at the asset's own intrinsic size -
+        // unlike an <Image style={{width,height}}>, it does NOT scale down
+        // to fit a style box. temp_stop.png/timepoint.png/stop.png are
+        // full-resolution source art (used at much bigger sizes elsewhere -
+        // help.tsx's legend, and the composed badge marker path below,
+        // both of which size them via a normal <Image style>), so using
+        // them directly here rendered every plain stop at native pixel
+        // size - comically huge. These *_marker variants are dedicated to
+        // this one call site (nothing else requires them), so their canvas
+        // is padded with transparent margin out to 60x60pt (matching
+        // busMarkerWrap/stopBadgeMarkerWrap's tap-target size) around the
+        // actual icon - react-native-maps hit-tests a marker's full image
+        // bounding box rather than per-pixel alpha, so that padding grows
+        // the tappable area for free.
+        //
+        // A second, invisible sibling Marker used to carry this same tap
+        // target instead of padding the asset - reverted after it doubled
+        // every plain stop's native marker count and started causing
+        // launch-time "object cannot be nil" crashes in AIRMap's own
+        // (hand-maintained, New Architecture legacy-interop) children
+        // array - see the crash notes on MAP_MOUNT_BATCH_SIZE above. Baking
+        // the padding into the asset itself keeps this back down to one
+        // native child per plain stop, same as before that experiment.
+        image={stop.isTemporary
+          ? require('../../assets/images/temp_stop_marker.png')
+          : isTimepoint
+          ? require('../../assets/images/timepoint_marker.png')
+          : require('../../assets/images/stop_marker.png')}
+        opacity={isVisible ? 1 : 0}
+        tappable={isVisible}
+        tracksViewChanges={!ready}
+        zIndex={0}
+        onPress={() => isVisible && onPress()}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}`}
+        accessibilityHint="Shows departure times for this stop"
+      />
     );
   }
 
