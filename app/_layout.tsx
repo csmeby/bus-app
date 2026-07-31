@@ -1,12 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { router, Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { ErrorBoundary } from '@/components/error-boundary';
+import { TourOverlay } from '@/components/tour-overlay';
 import { API_BASE } from '@/lib/api-base';
 import { NOTIFICATIONS_ENABLED_KEY, registerPushTokenWithServer, requestNotificationPermission } from '@/lib/notifications';
 import { setupGlobalErrorLogging } from '@/lib/error-logging';
+import { DEFAULT_LAUNCH_BTD_KEY, ONBOARDING_COMPLETE_KEY } from '@/lib/onboarding';
+import { TourProvider } from '@/lib/tour-context';
 import { FavoritesProvider } from '@/context/favorites-context';
 import { ThemeProvider, useAppTheme } from '@/context/theme-context';
 import { UnitCodesProvider } from '@/context/unit-codes-context';
@@ -14,23 +18,46 @@ import { useEffect } from 'react';
 
 setupGlobalErrorLogging();
 
+// Held until the first-launch check below (onboarding vs. BTD-default
+// redirect) has actually run - otherwise the native splash drops early and
+// the tab bar flashes for a frame before the redirect lands.
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
 function RootLayoutInner() {
   const { theme } = useAppTheme();
+
+  useEffect(() => {
+    (async () => {
+      const onboarded = await AsyncStorage.getItem(ONBOARDING_COMPLETE_KEY);
+      if (onboarded !== 'true') {
+        router.replace('/onboarding' as any);
+      } else {
+        const launchIntoBtd = await AsyncStorage.getItem(DEFAULT_LAUNCH_BTD_KEY);
+        if (launchIntoBtd === 'true') {
+          router.replace('/(btd)/map' as any);
+        }
+      }
+      SplashScreen.hideAsync().catch(() => {});
+    })();
+  }, []);
+
   return (
     <NavThemeProvider value={theme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(btd)" options={{ headerShown: false }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="theme" options={{ headerShown: false }} />
         <Stack.Screen name="favorites" options={{ headerShown: false }} />
         <Stack.Screen name="disruptions" options={{ headerShown: false }} />
         <Stack.Screen name="help" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ headerShown: false }} />
       </Stack>
+      <TourOverlay />
       <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
     </NavThemeProvider>
   );
@@ -71,7 +98,9 @@ export default function RootLayout() {
       <ThemeProvider>
         <FavoritesProvider>
           <UnitCodesProvider>
-            <RootLayoutInner />
+            <TourProvider>
+              <RootLayoutInner />
+            </TourProvider>
           </UnitCodesProvider>
         </FavoritesProvider>
       </ThemeProvider>

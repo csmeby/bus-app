@@ -1,3 +1,5 @@
+export const BRAND_MAROON = '#500000';
+
 export const Colors = {
   light: {
     text: '#11181C',
@@ -6,7 +8,7 @@ export const Colors = {
     surface: '#FFFFFF',
     surfaceAlt: '#F0F0F2',
     border: '#E5E5EA',
-    tint: '#500000',
+    tint: BRAND_MAROON,
     tabIconDefault: '#687076',
   },
   dark: {
@@ -16,7 +18,7 @@ export const Colors = {
     surface: '#1C1C1E',
     surfaceAlt: '#2C2C2E',
     border: '#3A3A3C',
-    tint: '#CC2936',
+    tint: '#A41010',
     tabIconDefault: '#9BA1A6',
   },
 };

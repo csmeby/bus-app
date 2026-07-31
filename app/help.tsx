@@ -103,12 +103,14 @@ export default function HelpScreen() {
                 i < STOP_TYPES.length - 1 && [styles.rowBorder, { borderBottomColor: c.border }],
               ]}
             >
-              <Image
-                source={item.image}
-                style={[styles.stopImage, { width: item.imageSize, height: item.imageSize }]}
-                accessible={false}
-                importantForAccessibility="no"
-              />
+              <View style={styles.stopIconBox}>
+                <Image
+                  source={item.image}
+                  style={[styles.stopImage, { width: item.imageSize, height: item.imageSize }]}
+                  accessible={false}
+                  importantForAccessibility="no"
+                />
+              </View>
               <View style={styles.stopTextWrap}>
                 <Text style={[styles.stopTitle, { color: c.text }]}>{item.title}</Text>
                 <Text style={[styles.stopText, { color: c.textSecondary }]}>{item.text}</Text>
@@ -158,6 +160,7 @@ const styles = StyleSheet.create({
   rowBorder: { borderBottomWidth: StyleSheet.hairlineWidth },
 
   stopRow: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 14 },
+  stopIconBox: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
   stopImage: { resizeMode: 'contain' },
   stopTextWrap: { flex: 1 },
   stopTitle: { fontSize: 15, fontWeight: '600', marginBottom: 3 },

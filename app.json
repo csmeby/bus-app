@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "Century Tree Transit",
-    "slug": "ctt",
-    "version": "1.0.0",
+    "slug": "bus",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "ctt",

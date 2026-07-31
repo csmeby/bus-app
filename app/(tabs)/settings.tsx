@@ -1,16 +1,19 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
-import React from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Switch } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { NativeScrollEvent, NativeSyntheticEvent, StyleSheet, View, Text, TouchableOpacity, Switch, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
 import { useUnitCodes } from '@/context/unit-codes-context';
+import { DEFAULT_LAUNCH_BTD_KEY, ONBOARDING_COMPLETE_KEY } from '@/lib/onboarding';
+import { TourTarget, useTour, type TourStepId } from '@/lib/tour-context';
 
 type IconName = React.ComponentProps<typeof MaterialIcons>['name'];
 
-type MenuItem = { href: string; icon: IconName; label: string; description: string };
+type MenuItem = { href: string; icon: IconName; label: string; description: string; tourId?: TourStepId };
 
 // Grouped into cards: appearance on its own, then the app-preference screens.
 const MENU_SECTIONS: MenuItem[][] = [
@@ -18,10 +21,10 @@ const MENU_SECTIONS: MenuItem[][] = [
     { href: '/theme', icon: 'brightness-6', label: 'Theme', description: 'Light, dark, or follow system' },
   ],
   [
-    { href: '/favorites', icon: 'star-outline', label: 'Favorite Routes', description: 'Pin routes to the top of the selector' },
-    { href: '/notifications', icon: 'notifications-none', label: 'Notifications', description: 'Enable alerts for delays and reroutes' },
+    { href: '/favorites', icon: 'star-outline', label: 'Favorite Routes', description: 'Pin routes to the top of the selector', tourId: 'favorites' },
+    { href: '/notifications', icon: 'notifications-none', label: 'Notifications', description: 'Enable alerts for delays and reroutes', tourId: 'notifications' },
     { href: '/disruptions', icon: 'warning-amber', label: 'Service Disruptions', description: 'Construction reroutes and closures' },
-    { href: '/help', icon: 'help-outline', label: 'Help Guide', description: 'Stop types and tips for riding the bus' },
+    { href: '/help', icon: 'help-outline', label: 'Help Guide', description: 'Stop types and tips for riding the bus', tourId: 'help' },
   ],
 ];
 
@@ -29,31 +32,74 @@ export default function MoreScreen() {
   const scheme = useColorScheme();
   const c = Colors[scheme];
   const { enabled: unitCodesEnabled, setEnabled: setUnitCodesEnabled } = useUnitCodes();
+  const [launchIntoBtd, setLaunchIntoBtd] = useState(false);
+  const { registerScrollView } = useTour();
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useRef(0);
 
-  const renderRow = (item: MenuItem, showBorder: boolean) => (
-    <TouchableOpacity
-      key={item.href}
-      style={[
-        styles.row,
-        showBorder && [styles.rowBorder, { borderBottomColor: c.border }],
-      ]}
-      onPress={() => router.push(item.href as any)}
-      activeOpacity={0.6}
-      accessibilityRole="button"
-      accessibilityLabel={item.label}
-      accessibilityHint={item.description}
-    >
-      <MaterialIcons name={item.icon} size={22} color={c.tint} style={styles.rowIcon} />
-      <View style={styles.rowText}>
-        <Text style={[styles.rowLabel, { color: c.text }]}>{item.label}</Text>
-        <Text style={[styles.rowDesc, { color: c.textSecondary }]}>{item.description}</Text>
-      </View>
-      <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
-    </TouchableOpacity>
-  );
+  useEffect(() => {
+    AsyncStorage.getItem(DEFAULT_LAUNCH_BTD_KEY).then(v => {
+      if (v === 'true') setLaunchIntoBtd(true);
+    });
+  }, []);
+
+  // Lets the tour scroll a target (e.g. the BTD card, which otherwise sits
+  // low enough to land behind the tab bar) toward the middle of the screen
+  // before measuring it - see registerScrollView in lib/tour-context.tsx.
+  useEffect(() => {
+    registerScrollView({ ref: scrollRef, getOffsetY: () => scrollY.current });
+    return () => registerScrollView(null);
+  }, [registerScrollView]);
+
+  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollY.current = e.nativeEvent.contentOffset.y;
+  };
+
+  const toggleLaunchIntoBtd = (value: boolean) => {
+    setLaunchIntoBtd(value);
+    AsyncStorage.setItem(DEFAULT_LAUNCH_BTD_KEY, value ? 'true' : 'false').catch(() => {});
+  };
+
+  const replayTutorial = async () => {
+    await AsyncStorage.removeItem(ONBOARDING_COMPLETE_KEY);
+    router.push('/onboarding' as any);
+  };
+
+  const renderRow = (item: MenuItem, showBorder: boolean) => {
+    const row = (
+      <TouchableOpacity
+        key={item.tourId ? undefined : item.href}
+        style={[
+          styles.row,
+          showBorder && [styles.rowBorder, { borderBottomColor: c.border }],
+        ]}
+        onPress={() => router.push(item.href as any)}
+        activeOpacity={0.6}
+        accessibilityRole="button"
+        accessibilityLabel={item.label}
+        accessibilityHint={item.description}
+      >
+        <MaterialIcons name={item.icon} size={22} color={c.tint} style={styles.rowIcon} />
+        <View style={styles.rowText}>
+          <Text style={[styles.rowLabel, { color: c.text }]}>{item.label}</Text>
+          <Text style={[styles.rowDesc, { color: c.textSecondary }]}>{item.description}</Text>
+        </View>
+        <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
+      </TouchableOpacity>
+    );
+    if (!item.tourId) return row;
+    return <TourTarget key={item.href} id={item.tourId}>{row}</TourTarget>;
+  };
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+      >
       <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">More</Text>
 
       {MENU_SECTIONS.map((section, i) => (
@@ -91,18 +137,50 @@ export default function MoreScreen() {
           Transit District), kept as its own app mode rather than mixed into
           this tab bar, per how different the two systems are (no live
           tracking, fixed schedules only). */}
+      <TourTarget id="btd" style={[styles.card, styles.spacedCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+        <TouchableOpacity
+          style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}
+          onPress={() => router.replace('/(btd)/map' as any)}
+          activeOpacity={0.6}
+          accessibilityRole="button"
+          accessibilityLabel="Brazos Transit District"
+          accessibilityHint="Switches to BTD's bus service"
+        >
+          <MaterialIcons name="swap-horiz" size={22} color={c.tint} style={styles.rowIcon} />
+          <View style={styles.rowText}>
+            <Text style={[styles.rowLabel, { color: c.text }]}>Brazos Transit District</Text>
+            <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Switch to BTD&apos;s bus service</Text>
+          </View>
+          <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
+        </TouchableOpacity>
+
+        <View style={styles.row}>
+          <MaterialIcons name="rocket-launch" size={22} color={c.tint} style={styles.rowIcon} />
+          <View style={styles.rowText}>
+            <Text style={[styles.rowLabel, { color: c.text }]}>Launch into BTD</Text>
+            <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Open straight to BTD instead of the map when you start the app</Text>
+          </View>
+          <Switch
+            value={launchIntoBtd}
+            onValueChange={toggleLaunchIntoBtd}
+            accessibilityLabel="Launch into BTD"
+            accessibilityHint="Opens the app directly to BTD's map on launch"
+          />
+        </View>
+      </TourTarget>
+
       <TouchableOpacity
         style={[styles.card, styles.spacedCard, styles.row, { backgroundColor: c.surface, borderColor: c.border }]}
-        onPress={() => router.replace('/(btd)/map' as any)}
+        onPress={replayTutorial}
         activeOpacity={0.6}
         accessibilityRole="button"
-        accessibilityLabel="Brazos Transit District"
-        accessibilityHint="Switches to BTD's bus service"
+        accessibilityLabel="Replay tutorial"
+        accessibilityHint="Watch the first-launch walkthrough again"
       >
-        <MaterialIcons name="swap-horiz" size={22} color={c.tint} style={styles.rowIcon} />
+        <MaterialIcons name="replay" size={22} color={c.tint} style={styles.rowIcon} />
         <View style={styles.rowText}>
-          <Text style={[styles.rowLabel, { color: c.text }]}>Brazos Transit District</Text>
-          <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Switch to BTD&apos;s bus service</Text>
+          <Text style={[styles.rowLabel, { color: c.text }]}>Replay Tutorial</Text>
+          <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Watch the first-launch walkthrough again</Text>
         </View>
         <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
       </TouchableOpacity>
@@ -110,12 +188,14 @@ export default function MoreScreen() {
       <View style={styles.footer}>
         <Text style={[styles.footerText, { color: c.textSecondary }]}>Century Tree Transit</Text>
       </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, paddingHorizontal: 20 },
+  root: { flex: 1 },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 24, flexGrow: 1 },
   pageTitle: { fontSize: 32, fontWeight: '700', marginTop: 16, marginBottom: 28 },
   card: { borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
   spacedCard: { marginTop: 16 },
@@ -131,6 +211,6 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: 16, fontWeight: '500', marginBottom: 2 },
   rowDesc: { fontSize: 13 },
   chevron: { fontSize: 22, fontWeight: '300' },
-  footer: { flex: 1, justifyContent: 'flex-end', paddingBottom: 24, alignItems: 'center' },
+  footer: { marginTop: 'auto', paddingTop: 24, alignItems: 'center' },
   footerText: { fontSize: 12 },
 });

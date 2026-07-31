@@ -5,9 +5,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Animated,
+  Dimensions,
   FlatList,
   Image,
   Modal,
+  PanResponder,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,7 +20,7 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
-import { Colors, DARK_MAP_STYLE } from '@/constants/theme';
+import { BRAND_MAROON, Colors, DARK_MAP_STYLE } from '@/constants/theme';
 import { ALL_ROUTES } from '@/constants/routes';
 import { findFleetInfo, fleetNotesFor, type FleetBlock } from '@/constants/fleet';
 import { useFavorites } from '@/context/favorites-context';
@@ -26,7 +28,23 @@ import { useUnitCodes } from '@/context/unit-codes-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { API_BASE } from '@/lib/api-base';
 import { cachedJsonFetch } from '@/lib/local-cache';
+import { TourTarget } from '@/lib/tour-context';
 import routePatterns from '../../routes_patterns.json';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+const STOP_LIST_HEIGHT_COLLAPSED = 220;
+const STOP_LIST_HEIGHT_EXPANDED = Math.round(SCREEN_HEIGHT * 0.5);
+
+// Shared by every place that mounts a batch of brand-new map children
+// (Polylines, stop/bus Markers) into react-native-maps' AIRMap - see the
+// long comment above selectAllRoutesGradually for the underlying crash this
+// works around (New Architecture's legacy-interop shim losing track of the
+// native children array when too many insertReactSubview calls land in one
+// commit). A plain setTimeout between batches, not back-to-back
+// requestAnimationFrame ticks - the interop's finalizeUpdates: runs off its
+// own queue, not strictly in lockstep with JS frame callbacks.
+const MAP_MOUNT_BATCH_SIZE = 3;
+const MAP_MOUNT_BATCH_DELAY_MS = 50;
 
 // Pre-rotated heading-arrow images (36 buckets, 10° apart) swapped via the
 // native `image` prop - the only churn-free way to change a marker's visual
@@ -406,6 +424,11 @@ export default function MapScreen() {
   // by always giving a freshly-selected bus a brand-new native view rather
   // than depending on an existing hidden one to wake back up correctly.
   const [routeLines, setRouteLines] = useState<Record<string, Record<string, { latitude: number; longitude: number }[]>>>({});
+  // Mirrors routeLines synchronously (state updates aren't visible to the
+  // same-tick code below that decides how to stagger the NEXT applyPatterns
+  // call) - see the routeLines staggering in applyPatterns.
+  const routeLinesRef = useRef<typeof routeLines>({});
+  const routeLinesStaggerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // route -> dirKey -> inbound/outbound/circulator, see DirKind above.
   const [routeDirKinds, setRouteDirKinds] = useState<Record<string, Record<string, DirKind>>>({});
   const [stops, setStops] = useState<Stop[]>([]);
@@ -464,6 +487,18 @@ export default function MapScreen() {
   // when their schedule is fetched (no proactive bulk lookup for every pin).
   const [closedStopCodes, setClosedStopCodes] = useState<Set<string>>(new Set());
   const stopPanelAnim = useRef(new Animated.Value(0)).current;
+  // Live vertical drag offset for the stop sheet's swipe gesture (see
+  // stopSheetPanResponder below) - separate from stopPanelAnim, which only
+  // ever animates the open/close slide, never a mid-drag position.
+  const stopSheetDragY = useRef(new Animated.Value(0)).current;
+  const [stopSheetExpanded, setStopSheetExpanded] = useState(false);
+  // PanResponder release handlers are created once (see useRef below) and
+  // would otherwise close over this state's initial value forever - read
+  // the current value through this ref instead.
+  const stopSheetExpandedRef = useRef(false);
+  useEffect(() => {
+    stopSheetExpandedRef.current = stopSheetExpanded;
+  }, [stopSheetExpanded]);
   // Monotonic tokens guarding the stop panel's async fetches: any newer fetch
   // (tapping another stop, another date chip, or closing the panel) bumps the
   // counter, so a slow in-flight response for the OLD stop/date can't land
@@ -737,6 +772,51 @@ export default function MapScreen() {
     });
   }, []);
 
+  // "All Routes" jumping selectedRoutes from whatever's picked straight to
+  // every route in one state update mounts every route's stops+buses+
+  // polylines as one giant React commit - all of them landing as
+  // insertReactSubview calls into the SAME native MapView children array
+  // (react-native-maps' AIRMap, run through the New Architecture's legacy-
+  // interop shim since it has no real Fabric component yet). That interop
+  // layer's own bookkeeping of that array doesn't reliably survive a commit
+  // that big - confirmed via crash logs, always the same native frame
+  // (AIRMap.m insertReactSubview:atIndex: / RCTLegacyViewManagerInterop-
+  // ComponentView finalizeUpdates:), either an index now beyond the array's
+  // actual bounds or a nil object, both symptoms of the same desync.
+  // Individually toggling routes (toggleRoute above) never hit this because
+  // each tap only ever adds ~one route's worth of children per commit - so
+  // replicate that here by ramping the full selection up a few routes at a
+  // time instead of all ~21 at once (MAP_MOUNT_BATCH_SIZE/DELAY_MS, module
+  // scope - shared with the initial-polyline-mount staggering in
+  // applyPatterns below, same underlying crash). Deselecting everything is
+  // NOT staggered - every crash so far is an insert, never a remove, so
+  // mass removal isn't implicated.
+  const selectAllTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Debounce on the ALL row's own tap-in/tap-out - a rapid double-tap could
+  // otherwise re-enter selectAllRoutesGradually (or fire the instant
+  // deselect) while the previous gradual ramp is still mid-flight.
+  const lastSelectAllClickRef = useRef(0);
+
+  const cancelGradualSelectAll = useCallback(() => {
+    if (selectAllTimerRef.current != null) {
+      clearTimeout(selectAllTimerRef.current);
+      selectAllTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => cancelGradualSelectAll, [cancelGradualSelectAll]);
+
+  const selectAllRoutesGradually = useCallback(() => {
+    cancelGradualSelectAll();
+    let cursor = 0;
+    const step = () => {
+      cursor += MAP_MOUNT_BATCH_SIZE;
+      setSelectedRoutes(new Set(ALL_ROUTES.slice(0, cursor)));
+      selectAllTimerRef.current = cursor < ALL_ROUTES.length ? setTimeout(step, MAP_MOUNT_BATCH_DELAY_MS) : null;
+    };
+    step();
+  }, [cancelGradualSelectAll]);
+
   // Active times list: real-time when stopDate is null, schedule otherwise
   const visibleStopTimes = useMemo(() => {
     const raw = stopDate ? stopSchedule : stopTimes;
@@ -759,15 +839,14 @@ export default function MapScreen() {
     // Default view is scoped to the route(s) currently selected on the map
     // - tapping a stop while "Route 12" is open shouldn't dump every route
     // that happens to share this physical stop into the panel. "All Stop
-    // Times" (showAllStopRoutes) lifts that filter. Fuzzy startsWith match
-    // (not strict equality) so a combined route like "01-04" still matches
-    // whichever of "01"/"04" the rider has selected, and vice versa.
+    // Times" (showAllStopRoutes) lifts that filter. Exact match only - this
+    // used to fuzzy-match "01-04" against a selected "01"/"04", but that
+    // meant selecting just "01" always pulled in "01-04" too, unasked for;
+    // "01-04" is its own selectable route in the picker, so it should only
+    // show up when actually selected, same as every other route.
     const filtered = showAllStopRoutes
       ? processed
-      : processed.filter(entry => {
-          const rn = entry.routeShortName ?? '';
-          return [...selectedRoutes].some(r => rn.startsWith(r) || r.startsWith(rn));
-        });
+      : processed.filter(entry => selectedRoutes.has(entry.routeShortName ?? ''));
 
     if (showAllStopRoutes) {
       // Numerical order across every route serving this stop, regardless
@@ -775,12 +854,15 @@ export default function MapScreen() {
       return [...filtered].sort((a, b) => routeNumberSortKey(a.routeShortName) - routeNumberSortKey(b.routeShortName));
     }
     // Routes with no departures that day sink to the bottom instead of
-    // cluttering the top with empty rows. Array.sort is stable, so routes
-    // within each group (has times / no times) keep their original order.
+    // cluttering the top with empty rows; within each group, numerical route
+    // order (previously unsorted within a group - just whatever order the
+    // API happened to return, which put routes like "12" ahead of "01" as
+    // often as not).
     return [...filtered].sort((a, b) => {
       const aEmpty = a.departureTimes.length === 0 ? 1 : 0;
       const bEmpty = b.departureTimes.length === 0 ? 1 : 0;
-      return aEmpty - bEmpty;
+      if (aEmpty !== bEmpty) return aEmpty - bEmpty;
+      return routeNumberSortKey(a.routeShortName) - routeNumberSortKey(b.routeShortName);
     });
   }, [stopTimes, stopSchedule, stopDate, showAllStopRoutes, selectedRoutes]);
 
@@ -818,7 +900,11 @@ export default function MapScreen() {
     };
     load();
     const id = setInterval(load, 15 * 60 * 1000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      if (routeLinesStaggerTimerRef.current) clearTimeout(routeLinesStaggerTimerRef.current);
+    };
   }, []);
 
   function applyPatterns(source: Record<string, any>) {
@@ -918,7 +1004,41 @@ export default function MapScreen() {
       if (stop.isTemporary && !seenTempCodes.has(code)) stopMap.delete(code);
     }
 
-    setRouteLines(lines);
+    // Polylines render unconditionally for every route regardless of
+    // selection (see the "Always render ALL polylines" comment in the
+    // render section) - so unlike stops/buses, which only mount once a
+    // route is selected, a route's Polyline children mount the very first
+    // time applyPatterns ever sees that route at all. On cold start that's
+    // ALL ~21 routes at once from the bundled snapshot (applyPatterns is
+    // called synchronously on mount, before any route is selected) - the
+    // exact same single-giant-commit crash risk as selectAllRoutesGradually
+    // above, just triggered unconditionally on every launch instead of by
+    // tapping "All Routes". Routes already present in routeLinesRef are
+    // just a coordinate/prop update on an already-mounted Polyline (safe,
+    // not an insert) and commit immediately; brand-new routes get their
+    // first mount staggered in with the same batching.
+    const newRoutes = Object.keys(lines).filter(r => !(r in routeLinesRef.current));
+    if (routeLinesStaggerTimerRef.current) {
+      clearTimeout(routeLinesStaggerTimerRef.current);
+      routeLinesStaggerTimerRef.current = null;
+    }
+    if (newRoutes.length === 0) {
+      routeLinesRef.current = lines;
+      setRouteLines(lines);
+    } else {
+      const merged = { ...lines };
+      newRoutes.forEach(r => delete merged[r]);
+      let cursor = 0;
+      const step = () => {
+        newRoutes.slice(cursor, cursor + MAP_MOUNT_BATCH_SIZE).forEach(r => { merged[r] = lines[r]; });
+        cursor += MAP_MOUNT_BATCH_SIZE;
+        const next = { ...merged };
+        routeLinesRef.current = next;
+        setRouteLines(next);
+        routeLinesStaggerTimerRef.current = cursor < newRoutes.length ? setTimeout(step, MAP_MOUNT_BATCH_DELAY_MS) : null;
+      };
+      step();
+    }
     setRouteDirKinds(kinds);
     setStops(Array.from(stopMap.values()));
   }
@@ -934,7 +1054,7 @@ export default function MapScreen() {
         data.forEach(r => {
           info[r.shortName] = {
             name: r.name,
-            color: r.color ?? '#500000',
+            color: r.color ?? BRAND_MAROON,
             directions: (r.directions ?? []).map((d: any) => ({ ...d, key: d.key?.toLowerCase() })),
           };
         });
@@ -1215,7 +1335,14 @@ export default function MapScreen() {
     setStopAmenities([]);
     setShowAllStopRoutes(false);
     setStopTimesLoading(true);
-    Animated.spring(stopPanelAnim, { toValue: 1, useNativeDriver: true, tension: 80, friction: 10 }).start();
+    setStopSheetExpanded(false);
+    stopSheetDragY.setValue(0);
+    // Not native-driven: this transform lives on the same node as the swipe
+    // gesture's drag transform (see stopSheetPanResponder), which can only
+    // ever be JS-driven (PanResponder's gestureState is computed in JS, not
+    // available to the native driver) - mixing drivers on one node throws
+    // "Attempting to run JS driven animation on node ... moved to native".
+    Animated.spring(stopPanelAnim, { toValue: 1, useNativeDriver: false, tension: 80, friction: 10 }).start();
 
     const relevantRoutes = stop.routes;
 
@@ -1252,7 +1379,7 @@ export default function MapScreen() {
       setStopTimesLoading(false);
       fetchStopSchedule(stop, toDateStr(new Date()));
     }
-  }, [stopPanelAnim, selectedBusName, closeBusCallout, fetchStopSchedule]);
+  }, [stopPanelAnim, stopSheetDragY, selectedBusName, closeBusCallout, fetchStopSchedule]);
 
   // Tapping a route row to "see all times for the day": when browsing a
   // specific date (stopDate set), the row already came from the full-day
@@ -1299,10 +1426,63 @@ export default function MapScreen() {
 
   const closeStopPanel = useCallback(() => {
     stopReqIdRef.current++; // drop in-flight times/schedule responses for the closed panel
-    Animated.spring(stopPanelAnim, { toValue: 0, useNativeDriver: true, tension: 80, friction: 10 }).start(() =>
+    Animated.spring(stopPanelAnim, { toValue: 0, useNativeDriver: false, tension: 80, friction: 10 }).start(() =>
       setSelectedStop(null)
     );
   }, [stopPanelAnim]);
+
+  // Swipe gesture on the stop sheet's drag handle: down past a threshold
+  // dismisses (further still if already expanded, since there's more sheet
+  // to travel through first), up past a threshold expands it to show more
+  // of the schedule list. Anything short of a threshold just springs back -
+  // created once via useRef, so the release handler reads current state
+  // through stopSheetExpandedRef rather than closing over a stale value.
+  const stopSheetPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dy) > 4,
+      onPanResponderMove: Animated.event([null, { dy: stopSheetDragY }], { useNativeDriver: false }),
+      onPanResponderRelease: (_evt, gesture) => {
+        const expanded = stopSheetExpandedRef.current;
+        const spring = () => Animated.spring(stopSheetDragY, { toValue: 0, useNativeDriver: false, tension: 80, friction: 10 }).start();
+
+        // A near-motionless touch on the handle - tap to toggle instead of
+        // requiring an actual drag at all.
+        const isTap = Math.abs(gesture.dx) < 6 && Math.abs(gesture.dy) < 6 && Math.abs(gesture.vy) < 0.3;
+        if (isTap) {
+          setStopSheetExpanded(!expanded);
+          spring();
+          return;
+        }
+
+        // A fast flick counts as a much bigger drag than it physically
+        // covered, so a short quick swipe triggers the same action a slow
+        // long drag would - not just literal pixel distance. Capped at 120
+        // (not the full flick distance) so a flick while expanded can never
+        // jump straight past "collapse" to "dismiss" in one gesture - see
+        // the staged expanded/collapsed handling below.
+        const isFlick = Math.abs(gesture.vy) > 0.5;
+        const effectiveDy = isFlick ? gesture.dy + Math.sign(gesture.vy) * 120 : gesture.dy;
+
+        // Staged, one step per gesture: expanded -> collapsed -> dismissed.
+        // A downward swipe while expanded only ever collapses, never both -
+        // dismissing needs its own separate swipe from the collapsed state.
+        if (expanded) {
+          if (effectiveDy > 40) setStopSheetExpanded(false);
+        } else {
+          if (effectiveDy > 80) {
+            closeStopPanel();
+            return;
+          }
+          if (effectiveDy < -40) setStopSheetExpanded(true);
+        }
+        spring();
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(stopSheetDragY, { toValue: 0, useNativeDriver: false, tension: 80, friction: 10 }).start();
+      },
+    })
+  ).current;
 
   const openBusCallout = useCallback((bus: any) => {
     // Only one panel at a time - opening a bus while the stop sheet is open
@@ -1544,7 +1724,7 @@ export default function MapScreen() {
             useGlideCoordinate), each of which owns its own
             tracksViewChanges lifecycle scoped to ITS OWN content changes. */}
         {mountedBuses.map(bus => {
-          const color = routeColors[bus.route] ?? '#CC2936';
+          const color = routeColors[bus.route] ?? BRAND_MAROON;
           const opacity = busOpacity.get(bus.name) ?? 1;
           return (
             <GlidingBus
@@ -1591,12 +1771,12 @@ export default function MapScreen() {
             anchor={{ x: 0.5, y: 1 }}
             tracksViewChanges={calloutRefreshPulse}
             tappable={false}
-            zIndex={4}
+            zIndex={100}
           >
             <View style={styles.calloutMarkerWrap}>
               <View style={[styles.callout, { backgroundColor: sheetBg, borderColor: c.border }]}>
                 <View style={styles.pillRow}>
-                  <View style={[styles.pill, { backgroundColor: routeColors[selectedBus.route] ?? '#CC2936' }]}>
+                  <View style={[styles.pill, { backgroundColor: routeColors[selectedBus.route] ?? BRAND_MAROON }]}>
                     <Text style={styles.pillText}>Route {selectedBus.route}</Text>
                   </View>
                   {!!selectedBus.direction && (
@@ -1659,7 +1839,7 @@ export default function MapScreen() {
                   <View style={[styles.barBg, { backgroundColor: c.surfaceAlt }]}>
                     <View style={[styles.barFill, { width: `${Math.round(busSheetStats.pct * 100)}%`, backgroundColor: busSheetStats.barColor }]} />
                   </View>
-                  <Text style={[styles.barLabel, { color: c.textSecondary }]}>~{busSheetStats.dispPax} pax</Text>
+                  <Text style={[styles.barLabel, { color: c.textSecondary }]}>~{busSheetStats.dispPax} passengers</Text>
                 </View>
                 {busSheetStats.delayLabel && (
                   <Text style={[styles.delayLabel, { color: c.textSecondary }]}>{busSheetStats.delayLabel}</Text>
@@ -1673,7 +1853,7 @@ export default function MapScreen() {
       </MapView>
 
       {/* ── Floating panel ────────────────────────────────────────────────── */}
-      <View style={[styles.panel, { top: insets.top + 8, backgroundColor: panelBg, borderColor: panelBorder }]}>
+      <TourTarget id="map-routes" style={[styles.panel, { top: insets.top + 8, backgroundColor: panelBg, borderColor: panelBorder }]}>
         <View style={styles.panelHeader}>
           <Text style={[styles.panelTitle, { color: c.text }]} accessibilityRole="header">Bus Routes</Text>
           <View style={styles.badge} accessible accessibilityLabel={`${visibleBusCount} buses active`}>
@@ -1701,7 +1881,7 @@ export default function MapScreen() {
             <Text style={styles.offlineBannerText}>No connection. Showing saved routes</Text>
           </View>
         )}
-      </View>
+      </TourTarget>
 
       {/* ── Route selector modal ───────────────────────────────────────────── */}
       <Modal visible={routePickerOpen} transparent animationType={routePickerAnimation} onRequestClose={() => setRoutePickerOpen(false)}>
@@ -1723,7 +1903,17 @@ export default function MapScreen() {
 
           <TouchableOpacity
             style={[styles.routeRow, selectedRoutes.size === ALL_ROUTES.length && { backgroundColor: c.tint + '15' }, { borderBottomColor: c.border }]}
-            onPress={() => setSelectedRoutes(selectedRoutes.size === ALL_ROUTES.length ? new Set() : new Set(ALL_ROUTES))}
+            onPress={() => {
+              const now = Date.now();
+              if (now - lastSelectAllClickRef.current < 375) return; // 375 ms cooldown stops crash
+              lastSelectAllClickRef.current = now;
+              if (selectedRoutes.size === ALL_ROUTES.length) {
+                cancelGradualSelectAll();
+                setSelectedRoutes(new Set());
+              } else {
+                selectAllRoutesGradually();
+              }
+            }}
             accessibilityRole="checkbox"
             accessibilityLabel="All routes"
             accessibilityState={{ checked: selectedRoutes.size === ALL_ROUTES.length }}
@@ -1819,10 +2009,21 @@ export default function MapScreen() {
           style={[
             styles.stopSheet,
             { backgroundColor: sheetBg, paddingBottom: insets.bottom + 16 },
-            { transform: [{ translateY: stopPanelAnim.interpolate({ inputRange: [0, 1], outputRange: [400, 0] }) }] },
+            {
+              transform: [
+                { translateY: stopPanelAnim.interpolate({ inputRange: [0, 1], outputRange: [400, 0] }) },
+                // Downward drag follows the finger 1:1; upward drag is a
+                // small rubber-band (the real "expand" effect only happens
+                // on release, via stopSheetExpanded's list-height change,
+                // not a live-tracked height/translate during the gesture).
+                { translateY: stopSheetDragY.interpolate({ inputRange: [-60, 0, 500], outputRange: [-24, 0, 500], extrapolate: 'clamp' }) },
+              ],
+            },
           ]}
         >
-          <View style={[styles.sheetHandle, { backgroundColor: c.border }]} />
+          <View {...stopSheetPanResponder.panHandlers} style={styles.stopSheetDragArea}>
+            <View style={[styles.sheetHandle, { backgroundColor: c.border }]} />
+          </View>
 
           <View style={[styles.stopSheetHeader, { borderBottomColor: c.border }]}>
             <View style={{ flex: 1 }}>
@@ -1938,7 +2139,7 @@ export default function MapScreen() {
                       <FlatList
                         data={visibleStopTimes}
                         keyExtractor={(_, i) => String(i)}
-                        style={{ maxHeight: 220 }}
+                        style={{ maxHeight: stopSheetExpanded ? STOP_LIST_HEIGHT_EXPANDED : STOP_LIST_HEIGHT_COLLAPSED }}
                         renderItem={({ item }) => <TimeEntryRow item={item} routeColors={routeColors} c={c} onPress={() => openExpandedEntry(item)} />}
                       />
                     ) : (
@@ -1964,7 +2165,7 @@ export default function MapScreen() {
                       <FlatList
                         data={visibleStopTimes}
                         keyExtractor={(_, i) => String(i)}
-                        style={{ maxHeight: 220 }}
+                        style={{ maxHeight: stopSheetExpanded ? STOP_LIST_HEIGHT_EXPANDED : STOP_LIST_HEIGHT_COLLAPSED }}
                         renderItem={({ item }) => <TimeEntryRow item={item} routeColors={routeColors} c={c} onPress={() => openExpandedEntry(item)} />}
                       />
                     ) : (
@@ -1993,7 +2194,7 @@ export default function MapScreen() {
           <View style={[styles.fullScheduleCard, { backgroundColor: sheetBg, paddingBottom: insets.bottom + 16 }]}>
             <View style={[styles.sheetHandle, { backgroundColor: c.border }]} />
             <View style={[styles.stopSheetHeader, { borderBottomColor: c.border }]}>
-              <View style={[styles.stopTimePill, { backgroundColor: routeColors[expandedEntry.routeShortName] ?? '#500000' }]}>
+              <View style={[styles.stopTimePill, { backgroundColor: routeColors[expandedEntry.routeShortName] ?? BRAND_MAROON }]}>
                 <Text style={styles.stopTimePillText}>{expandedEntry.routeShortName || '?'}</Text>
               </View>
               <View style={{ flex: 1 }}>
@@ -2478,7 +2679,7 @@ function StopMarker({
 
 function TimeEntryRow({ item, routeColors, c, onPress }: { item: TimeEntry; routeColors: Record<string, string>; c: any; onPress: () => void }) {
   const rn = item.routeShortName || '';
-  const color = routeColors[rn] ?? '#500000';
+  const color = routeColors[rn] ?? BRAND_MAROON;
   const times = item.departureTimes ?? [];
 
   // Screen-reader summary of the visible chips - the raw children would read
@@ -2561,7 +2762,10 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
 
   busIcon: { width: 24, height: 24, resizeMode: 'contain' },
-  busMarkerWrap: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  // Wrap is bigger than the icon it centers (24x24) purely to grow the tap
+  // target - anchor stays {0.5, 0.5} so the extra padding is invisible and
+  // doesn't shift the icon's visual position.
+  busMarkerWrap: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   busCircleFill: { position: 'absolute', width: 20, height: 20, borderRadius: 10 },
   // Separate ring drawn over the image's own thin baked-in outline, since we
   // can't restyle stroke width/color inside the PNG itself from RN.
@@ -2776,6 +2980,9 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 6,
   },
+  // Generous invisible hit area around the handle pill itself (which stays
+  // visually thin) so the swipe gesture is actually easy to grab.
+  stopSheetDragArea: { paddingVertical: 8 },
   sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
