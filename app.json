@@ -65,7 +65,8 @@
           "mode": "production"
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "react-native-maps"
     ],
     "experiments": {
       "typedRoutes": true,

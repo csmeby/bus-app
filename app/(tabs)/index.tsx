@@ -43,8 +43,8 @@ const STOP_LIST_HEIGHT_EXPANDED = Math.round(SCREEN_HEIGHT * 0.5);
 // commit). A plain setTimeout between batches, not back-to-back
 // requestAnimationFrame ticks - the interop's finalizeUpdates: runs off its
 // own queue, not strictly in lockstep with JS frame callbacks.
-const MAP_MOUNT_BATCH_SIZE = 2;
-const MAP_MOUNT_BATCH_DELAY_MS = 120;
+const MAP_MOUNT_BATCH_SIZE = 3;
+const MAP_MOUNT_BATCH_DELAY_MS = 50;
 
 // Pre-rotated heading-arrow images (36 buckets, 10° apart) swapped via the
 // native `image` prop - the only churn-free way to change a marker's visual
