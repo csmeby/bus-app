@@ -43,8 +43,8 @@ const STOP_LIST_HEIGHT_EXPANDED = Math.round(SCREEN_HEIGHT * 0.5);
 // commit). A plain setTimeout between batches, not back-to-back
 // requestAnimationFrame ticks - the interop's finalizeUpdates: runs off its
 // own queue, not strictly in lockstep with JS frame callbacks.
-const MAP_MOUNT_BATCH_SIZE = 3;
-const MAP_MOUNT_BATCH_DELAY_MS = 50;
+const MAP_MOUNT_BATCH_SIZE = 2;
+const MAP_MOUNT_BATCH_DELAY_MS = 120;
 
 // Pre-rotated heading-arrow images (36 buckets, 10° apart) swapped via the
 // native `image` prop - the only churn-free way to change a marker's visual
@@ -929,6 +929,17 @@ export default function MapScreen() {
     // hit the network on each of these infrequent (15-min) polls; the local
     // cache is only consulted as an offline fallback on fetch failure, and
     // only non-empty responses ever get stored into it below.
+    //
+    // Gated on mapReady so applyPatterns' own routeLinesRef staggering
+    // (routeLinesStaggerTimerRef) never runs concurrently with the
+    // revealedRoutes drain effect above, which only starts once mapReady is
+    // true - both loops share the same MAP_MOUNT_BATCH_SIZE/DELAY_MS cadence,
+    // and two independent timers ticking at the same interval can land their
+    // callbacks in the same JS turn under load (e.g. extra tutorial-replay
+    // work on the JS thread delaying a timer past when the next one also
+    // fires), coalescing into a bigger-than-intended native mount commit -
+    // exactly the insertReactSubview desync documented above.
+    if (!mapReady) return;
     applyPatterns(routePatterns);
     let cancelled = false;
     const load = async () => {
@@ -954,7 +965,7 @@ export default function MapScreen() {
       clearInterval(id);
       if (routeLinesStaggerTimerRef.current) clearTimeout(routeLinesStaggerTimerRef.current);
     };
-  }, []);
+  }, [mapReady]);
 
   function applyPatterns(source: Record<string, any>) {
     const lines: Record<string, Record<string, { latitude: number; longitude: number }[]>> = {};

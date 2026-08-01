@@ -825,7 +825,7 @@ export default function PlanRideScreen() {
                   }
                   return null;
                 })}
-                {routePreviewItin.legs[0]?.path?.[0] && (
+                {!!routePreviewItin.legs[0]?.path?.[0] && (
                   <Marker
                     coordinate={{
                       latitude: routePreviewItin.legs[0].path[0].lat,
