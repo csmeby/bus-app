@@ -47,6 +47,7 @@
       [
         "expo-splash-screen",
         {
+          "image": "./assets/images/splash-icon.png",
           "backgroundColor": "#F2F2F7",
           "dark": {
             "backgroundColor": "#0D0D0E"
@@ -66,7 +67,12 @@
         }
       ],
       "expo-web-browser",
-      "react-native-maps"
+      [
+        "react-native-maps",
+        {
+          "androidGoogleMapsApiKey": "AIzaSyAcbZS7wMYxM4tv3gjp5zy745LAAGdbfIQ"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

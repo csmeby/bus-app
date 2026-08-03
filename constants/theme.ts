@@ -1,8 +1,8 @@
-export const BRAND_MAROON = '#500000';
+export const BRAND_MAROON = '#A24857';
 
 export const Colors = {
   light: {
-    text: '#11181C',
+    text: '#202020',
     textSecondary: '#6E6E73',
     background: '#F2F2F7',
     surface: '#FFFFFF',
@@ -18,7 +18,7 @@ export const Colors = {
     surface: '#1C1C1E',
     surfaceAlt: '#2C2C2E',
     border: '#3A3A3C',
-    tint: '#A41010',
+    tint: '#A24857',
     tabIconDefault: '#9BA1A6',
   },
 };

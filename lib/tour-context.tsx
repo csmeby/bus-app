@@ -29,7 +29,7 @@ export const TOUR_STEPS: { id: TourStepId; route: string; title: string; body: s
     id: 'favorites',
     route: '/(tabs)/settings',
     title: 'Favorite Routes',
-    body: 'Pin the routes you ride most so they sort to the top of the picker.',
+    body: 'Pin the routes you ride most so they sort to the top of the selector.',
   },
   {
     id: 'notifications',
@@ -47,7 +47,7 @@ export const TOUR_STEPS: { id: TourStepId; route: string; title: string; body: s
     id: 'help',
     route: '/(tabs)/settings',
     title: 'New Here?',
-    body: 'The Help Guide covers stop types and tips for riding the bus - worth a look if you\'re a first time rider.',
+    body: 'The Help Guide covers stop types and tips for riding the bus.',
   },
 ];
 
@@ -80,9 +80,19 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
 
   const measure = useCallback((id: TourStepId) => {
     const ref = targetsRef.current[id];
-    ref?.current?.measureInWindow((x, y, width, height) => {
+    // measure() (pageX/pageY), not measureInWindow() - the target lives inside
+    // a react-native-screens native-stack screen (its own Android Fragment),
+    // and measureInWindow's getLocationInWindow can report coordinates
+    // relative to that Fragment's own surface rather than the true Activity
+    // window there. TourOverlay itself renders as a plain sibling of the
+    // Stack navigator (see app/_layout.tsx), so it's stuck in real window
+    // coordinates - the two only line up on iOS, where screens don't get
+    // their own window. measure()'s pageX/pageY walks RN's own layout tree
+    // instead of asking the Android view for its window location, which
+    // matches TourOverlay's coordinate space on both platforms.
+    ref?.current?.measure((_x, _y, width, height, pageX, pageY) => {
       const scrollEntry = scrollEntryRef.current;
-      const centerY = y + height / 2;
+      const centerY = pageY + height / 2;
       if (scrollEntry?.ref.current && Math.abs(centerY - TARGET_CENTER_Y) > SCROLL_REPOSITION_THRESHOLD) {
         // Scroll the target toward the middle of the screen instead of
         // trusting wherever it happened to land in the content - otherwise
@@ -93,13 +103,13 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
         const nextY = Math.max(0, scrollEntry.getOffsetY() + delta);
         scrollEntry.ref.current.scrollTo({ y: nextY, animated: true });
         setTimeout(() => {
-          ref.current?.measureInWindow((x2, y2, width2, height2) => {
-            setRect({ x: x2, y: y2, width: width2, height: height2 });
+          ref.current?.measure((_x2, _y2, width2, height2, pageX2, pageY2) => {
+            setRect({ x: pageX2, y: pageY2, width: width2, height: height2 });
           });
         }, SCROLL_SETTLE_MS);
         return;
       }
-      setRect({ x, y, width, height });
+      setRect({ x: pageX, y: pageY, width, height });
     });
   }, []);
 

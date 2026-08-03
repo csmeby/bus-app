@@ -545,7 +545,7 @@ export default function PlanRideScreen() {
         <View style={[styles.disclaimer, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
           <MaterialIcons name="info-outline" size={14} color={c.textSecondary} />
           <Text style={[styles.disclaimerText, { color: c.textSecondary }]}>
-            This is an estimate, not a guarantee. Always check the live map and allow extra buffer time.
+            This is an estimate. Always check the live map and allow extra buffer time.
           </Text>
         </View>
 

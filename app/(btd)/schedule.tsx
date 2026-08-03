@@ -1,19 +1,12 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import React, { useState } from 'react';
-import { LayoutAnimation, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, UIManager, View } from 'react-native';
+import { LayoutAnimation, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BTD_TINT } from '@/constants/btd-theme';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import btdRoutesRaw from '../../btd_routes.json';
-
-// LayoutAnimation is a no-op on Android unless explicitly enabled. Harmless
-// under the new architecture (where it's on by default and this setter is
-// deprecated-but-safe), still required on the old one.
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 type BtdStopEntry = { key: string; label: string; number: number; times: string[] };
 type BtdRoute = { name: string; color: string; terminal: string; description: string | null; stops: BtdStopEntry[] };

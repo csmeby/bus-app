@@ -45,6 +45,15 @@ const STOP_LIST_HEIGHT_EXPANDED = Math.round(SCREEN_HEIGHT * 0.5);
 // own queue, not strictly in lockstep with JS frame callbacks.
 const MAP_MOUNT_BATCH_SIZE = 3;
 const MAP_MOUNT_BATCH_DELAY_MS = 50;
+// "All Routes" tap gets its own, larger batch size (still staggered, just in
+// two bites instead of ~seven) rather than reusing MAP_MOUNT_BATCH_SIZE - that
+// constant's value of 3 is empirically crash-tested (see
+// selectAllRoutesGradually's comment) for the OTHER call sites sharing it
+// (bus remounts, initial polyline stagger), which fire far more often (every
+// 10s bus poll) than a single explicit "All Routes" tap. Widening it here
+// only, rather than raising the shared constant, keeps those other paths on
+// their already-proven-safe pace.
+const ALL_ROUTES_BATCH_SIZE = Math.ceil(ALL_ROUTES.length / 2);
 
 // Pre-rotated heading-arrow images (36 buckets, 10° apart) swapped via the
 // native `image` prop - the only churn-free way to change a marker's visual
@@ -486,6 +495,20 @@ export default function MapScreen() {
   // Stops we've learned are closed for at least one route, discovered lazily
   // when their schedule is fetched (no proactive bulk lookup for every pin).
   const [closedStopCodes, setClosedStopCodes] = useState<Set<string>>(new Set());
+  // Bumped a beat after every pinch/zoom settles - see the onRegionChangeComplete
+  // handler below and StopMarker's badged-marker resnap effect for why: Android's
+  // react-native-maps freezes a bitmap snapshot of a marker's custom child View
+  // (tracksViewChanges -> false) using an anchor computed from that View's size
+  // AT CAPTURE TIME. Under heavy simultaneous-mount load (e.g. tapping "All
+  // Routes", which can mount dozens of badged stop markers in one commit) that
+  // capture can land mid-layout and lock in a slightly-off anchor - invisible at
+  // the zoom level it was captured at, but an increasingly visible drift the
+  // further you zoom from there, since the pixel error is fixed but what it
+  // represents in real-world distance scales with zoom. Forcing a fresh
+  // tracksViewChanges cycle once the map's stopped moving re-captures the
+  // snapshot from the CURRENT (by-then-settled) layout, self-correcting it.
+  const [zoomSettleToken, setZoomSettleToken] = useState(0);
+  const zoomSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopPanelAnim = useRef(new Animated.Value(0)).current;
   // Live vertical drag offset for the stop sheet's swipe gesture (see
   // stopSheetPanResponder below) - separate from stopPanelAnim, which only
@@ -859,7 +882,7 @@ export default function MapScreen() {
     cancelGradualSelectAll();
     let cursor = 0;
     const step = () => {
-      cursor += MAP_MOUNT_BATCH_SIZE;
+      cursor += ALL_ROUTES_BATCH_SIZE;
       setSelectedRoutes(new Set(ALL_ROUTES.slice(0, cursor)));
       selectAllTimerRef.current = cursor < ALL_ROUTES.length ? setTimeout(step, MAP_MOUNT_BATCH_DELAY_MS) : null;
     };
@@ -1354,6 +1377,33 @@ export default function MapScreen() {
 
   // ── stop panel ─────────────────────────────────────────────────────────────
 
+  // Read inside the fetch callbacks below without making them depend on (and
+  // get torn down/recreated by) closedStopCodes itself.
+  const closedStopCodesRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    closedStopCodesRef.current = closedStopCodes;
+  }, [closedStopCodes]);
+
+  // AggieSpirit's live GetNextDepartTimes endpoint (unlike GetStopSchedule)
+  // simply doesn't return isTemporaryStopOnly/isClosedRegularStop on its
+  // entries at all - not a bug on our end, just a smaller response shape for
+  // that endpoint - so the "Temp Stop"/"Stop Closed" pills in the stop panel
+  // list (TimeEntryRow) never lit up until a rider explicitly pulled up a
+  // date's full schedule, which DOES carry them. Patches every entry with
+  // what the client already knows regardless of which endpoint answered:
+  // stop.isTemporary is derived straight from routes_patterns.json (no fetch
+  // needed at all), and closedStopCodesRef accumulates across every fetch of
+  // either kind for this stop this session (see the two call sites below).
+  const patchEntryFlags = useCallback((entries: TimeEntry[], stop: Stop): TimeEntry[] => {
+    const closed = closedStopCodesRef.current.has(stop.code);
+    if (!stop.isTemporary && !closed) return entries;
+    return entries.map(e => ({
+      ...e,
+      isTemporaryStopOnly: e.isTemporaryStopOnly || stop.isTemporary,
+      isClosedRegularStop: e.isClosedRegularStop || closed,
+    }));
+  }, []);
+
   const fetchStopSchedule = useCallback(async (stop: Stop, date: string) => {
     const reqId = ++stopReqIdRef.current;
     setStopDate(date);
@@ -1370,11 +1420,11 @@ export default function MapScreen() {
       );
       if (stopReqIdRef.current !== reqId) return;
       const entries = Array.isArray(data?.entries) ? data.entries : [];
-      setStopSchedule(entries);
-      setStopAmenities(Array.isArray(data?.amenities) ? data.amenities : []);
       if (entries.some(e => e.isClosedRegularStop)) {
         setClosedStopCodes(prev => new Set(prev).add(stop.code));
       }
+      setStopSchedule(patchEntryFlags(entries, stop));
+      setStopAmenities(Array.isArray(data?.amenities) ? data.amenities : []);
     } catch (e) {
       if (stopReqIdRef.current !== reqId) return;
       console.warn('Stop schedule fetch failed:', e);
@@ -1383,7 +1433,7 @@ export default function MapScreen() {
       // The loading flag belongs to whichever fetch is newest.
       if (stopReqIdRef.current === reqId) setStopScheduleLoading(false);
     }
-  }, []);
+  }, [patchEntryFlags]);
 
   const openStopPanel = useCallback(async (stop: Stop) => {
     if (selectedBusName) closeBusCallout();
@@ -1420,11 +1470,11 @@ export default function MapScreen() {
       const data: StopTimesPayload = await res.json();
       if (stopReqIdRef.current !== reqId) return; // user moved on to another stop
       const entries = Array.isArray(data?.entries) ? data.entries : [];
-      setStopTimes(entries);
-      setStopAmenities(Array.isArray(data?.amenities) ? data.amenities : []);
       if (entries.some(e => e.isClosedRegularStop)) {
         setClosedStopCodes(prev => new Set(prev).add(stop.code));
       }
+      setStopTimes(patchEntryFlags(entries, stop));
+      setStopAmenities(Array.isArray(data?.amenities) ? data.amenities : []);
       setStopTimesLoading(false);
       // If live times returned nothing (session stale, direction keys out of
       // date, or no buses running right now), fall back to today's full
@@ -1439,7 +1489,7 @@ export default function MapScreen() {
       setStopTimesLoading(false);
       fetchStopSchedule(stop, toDateStr(new Date()));
     }
-  }, [stopPanelAnim, stopSheetDragY, selectedBusName, closeBusCallout, fetchStopSchedule]);
+  }, [stopPanelAnim, stopSheetDragY, selectedBusName, closeBusCallout, fetchStopSchedule, patchEntryFlags]);
 
   // Tapping a route row to "see all times for the day": when browsing a
   // specific date (stopDate set), the row already came from the full-day
@@ -1683,6 +1733,10 @@ export default function MapScreen() {
           if (selectedBusName) closeBusCallout();
         }}
         onMapReady={() => setMapReady(true)}
+        onRegionChangeComplete={() => {
+          if (zoomSettleTimerRef.current) clearTimeout(zoomSettleTimerRef.current);
+          zoomSettleTimerRef.current = setTimeout(() => setZoomSettleToken(t => t + 1), 250);
+        }}
       >
         {/* Nothing below mounts until the native map view itself is ready -
             see mapReady above for why. */}
@@ -1813,6 +1867,7 @@ export default function MapScreen() {
             isClosed={closedStopCodes.has(stop.code)}
             isUnserved={unservedVisibleStopCodes.has(stop.code)}
             isTimepoint={isStopTimepointForSelection(stop)}
+            zoomSettleToken={zoomSettleToken}
             onPress={() => openStopPanel(stop)}
           />
         ))}
@@ -2621,6 +2676,7 @@ function StopMarker({
   isClosed,
   isUnserved,
   isTimepoint,
+  zoomSettleToken,
   onPress,
 }: {
   stop: Stop;
@@ -2628,6 +2684,7 @@ function StopMarker({
   isClosed: boolean;
   isUnserved: boolean;
   isTimepoint: boolean;
+  zoomSettleToken: number;
   onPress: () => void;
 }) {
   const badged = isClosed || isUnserved;
@@ -2652,6 +2709,25 @@ function StopMarker({
       cancelAnimationFrame(raf2);
     };
   }, [badged]);
+
+  // Forces one extra resnap of the composed marker's frozen bitmap once the
+  // map's settled after a zoom/pan - see zoomSettleToken's own comment for
+  // why a badged marker's snapshot can lock in a slightly-off anchor under
+  // mount load. Skipped on the very first mount (ready is already false
+  // then, and the onLayout-driven effect above owns that first snapshot).
+  useEffect(() => {
+    if (!badged || zoomSettleToken === 0 || !ready) return;
+    setReady(false);
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomSettleToken]);
 
   if (!badged) {
     return (
@@ -2711,6 +2787,21 @@ function StopMarker({
       onPress={() => isVisible && onPress()}
     >
       <View
+        // Fixed size regardless of which icon variant is inside - stopIcon,
+        // tempStopIcon, and timepointIcon are three different intrinsic
+        // sizes (26/20/17), and this View used to just shrink-wrap whatever
+        // was inside it. That's fine for layout, but the native marker
+        // snapshot Android takes to freeze this view into a bitmap (see
+        // tracksViewChanges above) captures the view's OWN declared bounds -
+        // for the smallest (timepoint) variant, the closed/unserved badge's
+        // negative-offset absolute position (closedStopBadge's `top: -2,
+        // right: -2`) sat close enough to that tiny box's edge to get
+        // clipped/mispositioned in the snapshot, since the badge overflows
+        // proportionally more of a 17x17 box than a 26x26 one. Pinning this
+        // wrapper to one fixed size (big enough for the largest icon plus
+        // badge overflow) and centering the icon inside it makes every
+        // variant snapshot identically.
+        style={styles.closedStopWrap}
         onLayout={() => {
           // One more frame after layout so the Image has actually had a
           // chance to paint before the snapshot locks in.
@@ -2788,7 +2879,7 @@ function TimeEntryRow({ item, routeColors, c, onPress }: { item: TimeEntry; rout
             )}
             {item.isTemporaryStopOnly && (
               <View style={[styles.miniBadge, { backgroundColor: '#F97316' }]}>
-                <Text style={styles.miniBadgeText}>Temp Stop</Text>
+                <Text style={styles.miniBadgeText}>Temporary Stop</Text>
               </View>
             )}
             {item.isClosedRegularStop && (
@@ -2857,10 +2948,15 @@ const styles = StyleSheet.create({
   tempStopIcon: { width: 20, height: 20, resizeMode: 'contain' },
   timepointIcon: { width: 17, height: 17, resizeMode: 'contain' },
   closedStopIcon: { opacity: 0.4 },
+  // Fixed regardless of icon variant - see the comment at this View's call
+  // site for why. Sized to stopIcon (the largest variant) plus a few px of
+  // margin for badge overflow; badges below are positioned relative to
+  // THIS box's corner, not the icon's own (possibly smaller) bounds.
+  closedStopWrap: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
   closedStopBadge: {
     position: 'absolute',
-    top: -2,
-    right: -2,
+    top: 0,
+    right: 0,
     width: 10,
     height: 10,
     borderRadius: 5,
@@ -2870,8 +2966,8 @@ const styles = StyleSheet.create({
   },
   unservedStopBadge: {
     position: 'absolute',
-    top: 5,
-    right: 5,
+    top: 6,
+    right: 6,
     width: 14,
     height: 14,
     borderRadius: 7,
