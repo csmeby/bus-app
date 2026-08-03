@@ -1912,7 +1912,16 @@ export default function MapScreen() {
             tappable={false}
             zIndex={100}
           >
-            <View style={styles.calloutMarkerWrap} onLayout={onCalloutLayout}>
+            {/* TEMP DIAGNOSTIC: red background on the wrap box itself - remove
+                once we've confirmed whether this 450px height is actually
+                being sized/positioned correctly on iOS. If you DON'T see a
+                tall red rectangle standing above the bus icon, the box
+                itself isn't being measured/placed as declared at all
+                (points at something deeper than padding-vs-height). If you
+                DO see it sized right but the callout content still isn't
+                where expected inside it, the box positioning is fine and
+                the bug is in the content's own layout within it. */}
+            <View style={[styles.calloutMarkerWrap, { backgroundColor: 'red' }]} onLayout={onCalloutLayout}>
               <View style={[styles.callout, { backgroundColor: sheetBg, borderColor: c.border }]}>
                 <View style={styles.pillRow}>
                   <View style={[styles.pill, { backgroundColor: routeColors[selectedBus.route] ?? BRAND_MAROON }]}>
@@ -3100,8 +3109,24 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   calloutMarkerWrap: {
+    // Explicit fixed height, not paddingBottom-driven auto-sizing - the
+    // vertical-offset bump (170 -> 300) had ZERO visible effect on iOS,
+    // which points at react-native-maps' Fabric interop shim (it's STILL
+    // the legacy-interop wrapper under the hood - see the crash notes on
+    // MAP_MOUNT_BATCH_SIZE elsewhere in this file) failing to re-measure an
+    // auto/intrinsic-sized child on iOS specifically, even though its
+    // layout genuinely changes (onCalloutLayout does fire). A fixed,
+    // explicit number here gives that measurement a concrete value instead
+    // of one it has to compute from content+padding.
+    //
+    // overflow: visible (RN's View default) means this being shorter than
+    // the actual callout content wouldn't clip it - it only needs to be at
+    // least the content's height plus the desired gap below it, so pick
+    // generously and rely on justifyContent to keep content pinned to the
+    // top with the extra reserved space as blank gap underneath.
+    height: 450,
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    paddingBottom: 300,
   },
   calloutPointer: {
     width: 0,
