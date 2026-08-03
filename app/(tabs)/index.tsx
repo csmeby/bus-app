@@ -1912,17 +1912,18 @@ export default function MapScreen() {
             tappable={false}
             zIndex={100}
           >
-            {/* TEMP DIAGNOSTIC: red background on the wrap box itself - remove
-                once we've confirmed whether this 450px height is actually
-                being sized/positioned correctly on iOS. If you DON'T see a
-                tall red rectangle standing above the bus icon, the box
-                itself isn't being measured/placed as declared at all
-                (points at something deeper than padding-vs-height). If you
-                DO see it sized right but the callout content still isn't
-                where expected inside it, the box positioning is fine and
-                the bug is in the content's own layout within it. */}
-            <View style={[styles.calloutMarkerWrap, { backgroundColor: 'red' }]} onLayout={onCalloutLayout}>
-              <View style={[styles.callout, { backgroundColor: sheetBg, borderColor: c.border }]}>
+            <View style={styles.calloutMarkerWrap} onLayout={onCalloutLayout}>
+              {/* This inner group - not calloutMarkerWrap itself - is what's
+                  bottom-justified, with a fixed-height spacer as its last
+                  child. That pins the gap between the pointer tip and the
+                  spacer's bottom edge (== calloutMarkerWrap's fixed,
+                  iOS-anchor-safe bottom) at a CONSTANT distance regardless
+                  of how tall the callout box above it grows/shrinks - so
+                  the box's own content is free to size normally (Off Route/
+                  delayLabel back to real conditional rendering below) without
+                  the bus-icon gap ever moving. */}
+              <View style={styles.calloutContentGroup}>
+                <View style={[styles.callout, { backgroundColor: sheetBg, borderColor: c.border }]}>
                 <View style={styles.pillRow}>
                   <View style={[styles.pill, { backgroundColor: routeColors[selectedBus.route] ?? BRAND_MAROON }]}>
                     <Text style={styles.pillText}>Route {selectedBus.route}</Text>
@@ -1932,15 +1933,11 @@ export default function MapScreen() {
                       <Text style={[styles.pillText, { color: c.text }]}>{selectedBus.direction}</Text>
                     </View>
                   )}
-                  {/* Always mounted, opacity-toggled rather than conditionally
-                      rendered - offRoute can flip on/off on every ~10s poll
-                      WHILE this same marker stays open (see calloutRefreshPulse),
-                      and a pill row that changes its own wrap count live is
-                      exactly the kind of mid-life size change that breaks
-                      Fabric's marker anchor (see the callout style's comment). */}
-                  <View style={[styles.pill, { backgroundColor: '#F97316', opacity: busSheetStats.offRoute ? 1 : 0 }]}>
-                    <Text style={styles.pillText}>Off Route</Text>
-                  </View>
+                  {busSheetStats.offRoute && (
+                    <View style={[styles.pill, { backgroundColor: '#F97316' }]}>
+                      <Text style={styles.pillText}>Off Route</Text>
+                    </View>
+                  )}
                   {selectedBus.isExtraTrip && (
                     <View style={[styles.pill, { backgroundColor: '#8B5CF6' }]}>
                       <Text style={styles.pillText}>Extra Trip</Text>
@@ -1993,17 +1990,13 @@ export default function MapScreen() {
                   </View>
                   <Text style={[styles.barLabel, { color: c.textSecondary }]}>~{busSheetStats.dispPax} passengers</Text>
                 </View>
-                {/* Always mounted (reserved-height placeholder text when
-                    absent), same reasoning as the Off Route pill above -
-                    delayLabel can appear/disappear on every poll while this
-                    marker stays open. */}
-                <Text
-                  style={[styles.delayLabel, { color: c.textSecondary, opacity: busSheetStats.delayLabel ? 1 : 0 }]}
-                >
-                  {busSheetStats.delayLabel || ' '}
-                </Text>
+                {busSheetStats.delayLabel && (
+                  <Text style={[styles.delayLabel, { color: c.textSecondary }]}>{busSheetStats.delayLabel}</Text>
+                )}
+                </View>
+                <View style={[styles.calloutPointer, { borderTopColor: sheetBg }]} />
               </View>
-              <View style={[styles.calloutPointer, { borderTopColor: sheetBg }]} />
+              <View style={styles.calloutSpacer} />
             </View>
           </Marker>
         )}
@@ -3109,24 +3102,23 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   calloutMarkerWrap: {
-    // Explicit fixed height, not paddingBottom-driven auto-sizing - the
-    // vertical-offset bump (170 -> 300) had ZERO visible effect on iOS,
-    // which points at react-native-maps' Fabric interop shim (it's STILL
-    // the legacy-interop wrapper under the hood - see the crash notes on
-    // MAP_MOUNT_BATCH_SIZE elsewhere in this file) failing to re-measure an
-    // auto/intrinsic-sized child on iOS specifically, even though its
-    // layout genuinely changes (onCalloutLayout does fire). A fixed,
-    // explicit number here gives that measurement a concrete value instead
-    // of one it has to compute from content+padding.
-    //
-    // overflow: visible (RN's View default) means this being shorter than
-    // the actual callout content wouldn't clip it - it only needs to be at
-    // least the content's height plus the desired gap below it, so pick
-    // generously and rely on justifyContent to keep content pinned to the
-    // top with the extra reserved space as blank gap underneath.
-    height: 450,
-    justifyContent: 'flex-start',
+    height: 195,
+  },
+  // Bottom-justified, with calloutSpacer as its last child - pins the gap
+  // between the callout's pointer tip and calloutMarkerWrap's fixed bottom
+  // (the actual anchor point) at a CONSTANT distance (calloutSpacer's own
+  // height), regardless of how tall the callout box above it grows or
+  // shrinks as its content (Off Route pill, delay label, amenities, ...)
+  // comes and goes. Overflows calloutMarkerWrap's own fixed height upward
+  // when content is tall enough to need it - harmless (RN's default
+  // overflow: visible), since only the BOTTOM edge needs to stay put.
+  calloutContentGroup: {
+    flex: 1,
+    justifyContent: 'flex-end',
     alignItems: 'center',
+  },
+  calloutSpacer: {
+    height: 15,
   },
   calloutPointer: {
     width: 0,
