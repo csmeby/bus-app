@@ -3101,7 +3101,7 @@ const styles = StyleSheet.create({
   },
   calloutMarkerWrap: {
     alignItems: 'center',
-    paddingBottom: 170,
+    paddingBottom: 300,
   },
   calloutPointer: {
     width: 0,
