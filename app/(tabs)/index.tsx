@@ -3118,7 +3118,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   calloutSpacer: {
-    height: 15,
+    height: 150,
   },
   calloutPointer: {
     width: 0,
