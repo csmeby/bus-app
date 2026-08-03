@@ -1,5 +1,4 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { router } from 'expo-router';
 import React from 'react';
 import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -217,22 +216,6 @@ export default function BtdInfoScreen() {
             </View>
           </View>
         </Section>
-
-        <TouchableOpacity
-          style={[styles.card, styles.switchModeCard, { backgroundColor: c.surface, borderColor: c.border }]}
-          onPress={() => router.replace('/(tabs)' as any)}
-          activeOpacity={0.6}
-          accessibilityRole="button"
-          accessibilityLabel="AggieSpirit Buses"
-          accessibilityHint="Switches back to TAMU's bus service"
-        >
-          <MaterialIcons name="swap-horiz" size={22} color={Colors[scheme].tint} style={styles.switchIcon} />
-          <View style={styles.rowText}>
-            <Text style={[styles.rowLabel, { color: c.text }]}>AggieSpirit Buses</Text>
-            <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Switch back to TAMU&apos;s bus service</Text>
-          </View>
-          <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
-        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -273,17 +256,4 @@ const styles = StyleSheet.create({
   ruleRow: { flexDirection: 'row', padding: 12, paddingHorizontal: 14, gap: 8 },
   ruleBullet: { fontSize: 14, fontWeight: '700', lineHeight: 19 },
   ruleText: { fontSize: 13, flex: 1, lineHeight: 19 },
-
-  switchModeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    marginTop: 24,
-  },
-  switchIcon: { marginRight: 12 },
-  rowText: { flex: 1, marginRight: 12 },
-  rowLabel: { fontSize: 16, fontWeight: '500', marginBottom: 2 },
-  rowDesc: { fontSize: 13 },
-  chevron: { fontSize: 22, fontWeight: '300' },
 });

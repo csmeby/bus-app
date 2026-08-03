@@ -157,13 +157,13 @@ export default function MoreScreen() {
         <View style={styles.row}>
           <MaterialIcons name="rocket-launch" size={22} color={c.tint} style={styles.rowIcon} />
           <View style={styles.rowText}>
-            <Text style={[styles.rowLabel, { color: c.text }]}>Launch into BTD</Text>
+            <Text style={[styles.rowLabel, { color: c.text }]}>Load into BTD</Text>
             <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Open straight to BTD instead of the map when you start the app</Text>
           </View>
           <Switch
             value={launchIntoBtd}
             onValueChange={toggleLaunchIntoBtd}
-            accessibilityLabel="Launch into BTD"
+            accessibilityLabel="Load into BTD"
             accessibilityHint="Opens the app directly to BTD's map on launch"
           />
         </View>

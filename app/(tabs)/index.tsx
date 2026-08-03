@@ -1665,13 +1665,35 @@ export default function MapScreen() {
   // - just triggered by opening a callout instead of a bus poll. Same fix:
   // pulse tracksViewChanges only when the callout's actual visible content
   // changes (or first opens), not continuously.
+  //
+  // Locking back to false used to happen on a blind 100ms timeout rather than
+  // an actual layout signal - fine as long as every re-snapshot always
+  // produced the SAME final size, but before the callout box got a fixed
+  // width and its offRoute pill / delayLabel became always-mounted
+  // (opacity-toggled) placeholders, snapshots could genuinely still be
+  // mid-layout when that timeout fired. That's the same size-shifts-under-a-
+  // still-locking-snapshot shape of bug already root-caused for StopMarker's
+  // closed/unserved badge (see its own onLayout comment) - so this uses the
+  // same fix: lock back to false only after a real onLayout + two RAFs
+  // confirm the CURRENT content has actually finished laying out at its
+  // (now-fixed) size, not after a guessed delay.
   const [calloutRefreshPulse, setCalloutRefreshPulse] = useState(false);
   useEffect(() => {
     if (!selectedBusName) return;
     setCalloutRefreshPulse(true);
-    const id = setTimeout(() => setCalloutRefreshPulse(false), 100);
-    return () => clearTimeout(id);
   }, [selectedBusName, busSheetStats]);
+  const calloutSettleRafRef = useRef<{ raf1: number; raf2: number } | null>(null);
+  const onCalloutLayout = useCallback(() => {
+    if (calloutSettleRafRef.current) {
+      cancelAnimationFrame(calloutSettleRafRef.current.raf1);
+      cancelAnimationFrame(calloutSettleRafRef.current.raf2);
+    }
+    const raf1 = requestAnimationFrame(() => {
+      const raf2 = requestAnimationFrame(() => setCalloutRefreshPulse(false));
+      calloutSettleRafRef.current = { raf1, raf2 };
+    });
+    calloutSettleRafRef.current = { raf1, raf2: 0 };
+  }, []);
 
   // ── timepoint hold countdown ───────────────────────────────────────────────
 
@@ -1877,8 +1899,10 @@ export default function MapScreen() {
             tip) sits right above the bus icon. Being a real marker, it pans/
             zooms with the map exactly like every other marker here; being a
             Marker and not a Callout, nothing auto-dismisses it on updates.
-            tracksViewChanges is on since its content (speed/passengers/hold)
-            changes live - acceptable for the one currently-selected bus. */}
+            tracksViewChanges pulses (calloutRefreshPulse, see its own
+            comment above) rather than staying hard-on, since its content
+            (speed/passengers/hold) changes live for the one currently-
+            selected bus. */}
         {selectedBusName && selectedBus && busSheetStats && (
           <Marker
             key={`${selectedBus.name}-callout`}
@@ -1888,7 +1912,7 @@ export default function MapScreen() {
             tappable={false}
             zIndex={100}
           >
-            <View style={styles.calloutMarkerWrap}>
+            <View style={styles.calloutMarkerWrap} onLayout={onCalloutLayout}>
               <View style={[styles.callout, { backgroundColor: sheetBg, borderColor: c.border }]}>
                 <View style={styles.pillRow}>
                   <View style={[styles.pill, { backgroundColor: routeColors[selectedBus.route] ?? BRAND_MAROON }]}>
@@ -1899,11 +1923,15 @@ export default function MapScreen() {
                       <Text style={[styles.pillText, { color: c.text }]}>{selectedBus.direction}</Text>
                     </View>
                   )}
-                  {busSheetStats.offRoute && (
-                    <View style={[styles.pill, { backgroundColor: '#F97316' }]}>
-                      <Text style={styles.pillText}>Off Route</Text>
-                    </View>
-                  )}
+                  {/* Always mounted, opacity-toggled rather than conditionally
+                      rendered - offRoute can flip on/off on every ~10s poll
+                      WHILE this same marker stays open (see calloutRefreshPulse),
+                      and a pill row that changes its own wrap count live is
+                      exactly the kind of mid-life size change that breaks
+                      Fabric's marker anchor (see the callout style's comment). */}
+                  <View style={[styles.pill, { backgroundColor: '#F97316', opacity: busSheetStats.offRoute ? 1 : 0 }]}>
+                    <Text style={styles.pillText}>Off Route</Text>
+                  </View>
                   {selectedBus.isExtraTrip && (
                     <View style={[styles.pill, { backgroundColor: '#8B5CF6' }]}>
                       <Text style={styles.pillText}>Extra Trip</Text>
@@ -1956,9 +1984,15 @@ export default function MapScreen() {
                   </View>
                   <Text style={[styles.barLabel, { color: c.textSecondary }]}>~{busSheetStats.dispPax} passengers</Text>
                 </View>
-                {busSheetStats.delayLabel && (
-                  <Text style={[styles.delayLabel, { color: c.textSecondary }]}>{busSheetStats.delayLabel}</Text>
-                )}
+                {/* Always mounted (reserved-height placeholder text when
+                    absent), same reasoning as the Off Route pill above -
+                    delayLabel can appear/disappear on every poll while this
+                    marker stays open. */}
+                <Text
+                  style={[styles.delayLabel, { color: c.textSecondary, opacity: busSheetStats.delayLabel ? 1 : 0 }]}
+                >
+                  {busSheetStats.delayLabel || ' '}
+                </Text>
               </View>
               <View style={[styles.calloutPointer, { borderTopColor: sheetBg }]} />
             </View>
@@ -2985,8 +3019,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    minWidth: 190,
-    maxWidth: 270,
+    // Fixed, not min/max - react-native-maps' Fabric marker anchor
+    // calculation re-derives itself from this view's OWN rendered size on
+    // every re-snapshot (see calloutRefreshPulse), and a size that can
+    // shift with content (a longer bus ID, direction name, etc.) is exactly
+    // the shape of bug Fabric mis-anchors on - matches the "jumps to top of
+    // screen" (Android) / "covers the bus icon" (iOS) reports.
+    width: 270,
     shadowColor: '#000',
     shadowOpacity: 0.18,
     shadowOffset: { width: 0, height: 3 },
@@ -3057,6 +3096,7 @@ const styles = StyleSheet.create({
   delayLabel: {
     fontSize: 11,
     fontWeight: '500',
+    lineHeight: 14,
     marginTop: 4,
   },
   calloutMarkerWrap: {
