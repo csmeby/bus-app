@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BTD_TINT } from '@/constants/btd-theme';
 import { DARK_MAP_STYLE } from '@/constants/theme';
 import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
-import { useMapProvider } from '@/context/map-provider-context';
+import { GOOGLE_MAPS_IOS_READY, useMapProvider } from '@/context/map-provider-context';
 import { useThemeColors } from '@/context/theme-context';
 import { ScaledText as Text } from '@/components/scaled-text';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -148,7 +148,7 @@ export default function BtdMapScreen() {
   const iconScale = ICON_SCALE[iconSize];
   // See app/(tabs)/index.tsx's own comment on this same pattern.
   const { mapProvider } = useMapProvider();
-  const provider = Platform.OS === 'ios' && mapProvider === 'google' ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
+  const provider = Platform.OS === 'ios' && mapProvider === 'google' && GOOGLE_MAPS_IOS_READY ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
   const insets = useSafeAreaInsets();
 
   const [selectedRoutes, setSelectedRoutes] = useState<string[]>([]); // Start with no routes selected

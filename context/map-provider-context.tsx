@@ -6,6 +6,14 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 // BtdMapScreen read this: gated on Platform.OS === 'ios').
 export type MapProviderPref = 'apple' | 'google';
 
+// app.json's react-native-maps plugin now has an iosGoogleMapsApiKey set
+// (as of build 9) - flip this back to false if a future build ever drops
+// that key again, since selecting Google Maps without it crashes with
+// "Element type is invalid" (react-native-maps trying to render a native
+// component that isn't linked into the binary) rather than falling back
+// gracefully.
+export const GOOGLE_MAPS_IOS_READY = true;
+
 interface MapProviderContextValue {
   mapProvider: MapProviderPref;
   setMapProvider: (provider: MapProviderPref) => void;
