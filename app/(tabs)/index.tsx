@@ -59,14 +59,64 @@ const MAP_MOUNT_BATCH_DELAY_MS = 50;
 // their already-proven-safe pace.
 const ALL_ROUTES_BATCH_SIZE = Math.ceil(ALL_ROUTES.length / 2);
 
-// Single north-pointing base image, rotated per-bus via a composed View's
-// transform in BusHeadingMarker - see that function's own comment for the
-// confirmed root cause (a dead `tracksViewChanges` prop on Android/Fabric)
-// this now works around, replacing the previous 36 pre-rotated images
-// swapped through the native `image` prop. The old per-degree assets are
-// left in place, unused, as an easy revert if this doesn't hold up under
-// real bus load - see git history for the swap-back.
-const HEADING_ARROW_BASE_IMAGE = require('../../assets/images/heading_arrow_000.png');
+// Pre-rotated heading-arrow images (36 buckets, 10° apart) swapped via the
+// native `image` prop - the only churn-free way to change a marker's visual
+// on react-native-maps (children + tracksViewChanges caused the fleet-wide
+// "TelemetryController::pullTransaction index beyond bounds" crash; keying on
+// heading mass-remounted every bus at once on every poll). Static requires
+// are mandatory - Metro can't resolve a computed path. A composed-view
+// rewrite (single base image, rotated via transform) was tried and reverted
+// again - on real devices the heading arrow could render behind/under the
+// bus icon (only visible once something else forced a re-snapshot, e.g.
+// tapping the bus), a z-order bug distinct from the tracksViewChanges issue
+// that fix targeted. Not worth chasing further - this per-degree-image
+// approach has no such issue and the asset-size cost is negligible.
+const HEADING_ARROW_IMAGES: Record<string, number> = {
+  '000': require('../../assets/images/heading_arrow_000.png'),
+  '010': require('../../assets/images/heading_arrow_010.png'),
+  '020': require('../../assets/images/heading_arrow_020.png'),
+  '030': require('../../assets/images/heading_arrow_030.png'),
+  '040': require('../../assets/images/heading_arrow_040.png'),
+  '050': require('../../assets/images/heading_arrow_050.png'),
+  '060': require('../../assets/images/heading_arrow_060.png'),
+  '070': require('../../assets/images/heading_arrow_070.png'),
+  '080': require('../../assets/images/heading_arrow_080.png'),
+  '090': require('../../assets/images/heading_arrow_090.png'),
+  '100': require('../../assets/images/heading_arrow_100.png'),
+  '110': require('../../assets/images/heading_arrow_110.png'),
+  '120': require('../../assets/images/heading_arrow_120.png'),
+  '130': require('../../assets/images/heading_arrow_130.png'),
+  '140': require('../../assets/images/heading_arrow_140.png'),
+  '150': require('../../assets/images/heading_arrow_150.png'),
+  '160': require('../../assets/images/heading_arrow_160.png'),
+  '170': require('../../assets/images/heading_arrow_170.png'),
+  '180': require('../../assets/images/heading_arrow_180.png'),
+  '190': require('../../assets/images/heading_arrow_190.png'),
+  '200': require('../../assets/images/heading_arrow_200.png'),
+  '210': require('../../assets/images/heading_arrow_210.png'),
+  '220': require('../../assets/images/heading_arrow_220.png'),
+  '230': require('../../assets/images/heading_arrow_230.png'),
+  '240': require('../../assets/images/heading_arrow_240.png'),
+  '250': require('../../assets/images/heading_arrow_250.png'),
+  '260': require('../../assets/images/heading_arrow_260.png'),
+  '270': require('../../assets/images/heading_arrow_270.png'),
+  '280': require('../../assets/images/heading_arrow_280.png'),
+  '290': require('../../assets/images/heading_arrow_290.png'),
+  '300': require('../../assets/images/heading_arrow_300.png'),
+  '310': require('../../assets/images/heading_arrow_310.png'),
+  '320': require('../../assets/images/heading_arrow_320.png'),
+  '330': require('../../assets/images/heading_arrow_330.png'),
+  '340': require('../../assets/images/heading_arrow_340.png'),
+  '350': require('../../assets/images/heading_arrow_350.png'),
+};
+const HEADING_BLANK_IMAGE = require('../../assets/images/heading_blank.png');
+
+function headingArrowImage(heading: number | null | undefined): number {
+  if (typeof heading !== 'number' || isNaN(heading)) return HEADING_BLANK_IMAGE;
+  const bucket = (Math.round(heading / 10) * 10) % 360;
+  const key = String(bucket < 0 ? bucket + 360 : bucket).padStart(3, '0');
+  return HEADING_ARROW_IMAGES[key] ?? HEADING_BLANK_IMAGE;
+}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -2604,56 +2654,39 @@ function BusMarker({
   );
 }
 
-// Heading-arrow marker. Composed view (base image + rotate transform)
-// retried here specifically BECAUSE we now know the real reason the
-// earlier attempt (and two separate StopMarker attempts) didn't hold up:
-// confirmed via react-native-maps' own GitHub issues (#5728, #5560, #5836)
-// that `tracksViewChanges` is a dead prop on Android under the New
-// Architecture - never re-wired to native code when Fabric support landed.
-// Toggling it there does nothing; leaving it permanently true is the
-// community-confirmed workaround (forces a real redraw every time instead
-// of relying on the broken snapshot-lock). iOS keeps the real settle logic
-// (onLayout + double rAF) - its own residual race (MapKit substituting a
-// default pin if a child view isn't laid out in time) is a genuine timing
-// issue, not a dead prop, so that mitigation still does real work there.
-//
-// Unlike StopMarker, this one's content (rotation, at minimum) changes on
-// nearly every render for a bus that's actually moving - permanently-true
-// tracksViewChanges means Android re-snapshots this marker every single
-// render, not just on genuine heading changes. Untested under real bus
-// load (many buses, ~10s poll cadence) - if this turns out too expensive,
-// the fallback is the 36-pre-rotated-image/native-`image`-prop version (see
-// git history), which sidesteps needing tracksViewChanges at all.
+// Heading-arrow marker. Same self-contained approach as BusMarker above,
+// pulsing tracksViewChanges only when THIS bus's own heading value changes
+// (a new arrow image needs rasterizing) - never in lockstep with any other
+// bus. Image-only marker (no child View), so there's no onLayout to hook;
+// "ready" locks after two animation frames post-mount instead, which is
+// enough headroom for the image prop to have actually been applied natively
+// before the first snapshot locks in. A composed-view (rotated base image)
+// rewrite was tried twice and reverted both times - see git history and
+// HEADING_ARROW_IMAGES' own comment.
 function BusHeadingMarker({ bus, opacity }: { bus: any; opacity: number }) {
   const [ready, setReady] = useState(false);
-  const { iconSize } = useAccessibility();
-  const scale = ICON_SCALE[iconSize];
-  const hasHeading = typeof bus.heading === 'number' && !isNaN(bus.heading);
-  const heading = hasHeading ? bus.heading : 0;
 
   useEffect(() => {
-    setReady(false);
-  }, [heading]);
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, []);
 
   return (
     <Marker
       coordinate={{ latitude: bus.lat, longitude: bus.lon }}
       anchor={{ x: 0.5, y: 0.5 }}
-      opacity={hasHeading ? opacity : 0}
-      tracksViewChanges={Platform.OS === 'android' ? true : !ready}
+      image={headingArrowImage(bus.heading)}
+      opacity={opacity}
+      tracksViewChanges={!ready}
       tappable={false}
       zIndex={9}
-    >
-      <View
-        style={[styles.headingArrowWrap, { width: 24 * scale, height: 24 * scale, transform: [{ rotate: `${heading}deg` }] }]}
-        onLayout={() => requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)))}
-      >
-        <Image
-          source={HEADING_ARROW_BASE_IMAGE}
-          style={{ width: 24 * scale, height: 24 * scale, resizeMode: 'contain' }}
-        />
-      </View>
-    </Marker>
+    />
   );
 }
 
@@ -2948,7 +2981,6 @@ const styles = StyleSheet.create({
   // was nowhere else for that growth to hide). These match what scale=0.85
   // ("Small") used to look like under the old 24/26/30 baseline instead.
   busIcon: { width: 20, height: 20, resizeMode: 'contain' },
-  headingArrowWrap: { alignItems: 'center', justifyContent: 'center' },
   // Wrap is bigger than the icon it centers purely to grow the tap target -
   // anchor stays {0.5, 0.5} so the extra padding is invisible and doesn't
   // shift the icon's visual position.
