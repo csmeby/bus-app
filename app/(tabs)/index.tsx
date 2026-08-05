@@ -25,7 +25,7 @@ import { BRAND_MAROON, DARK_MAP_STYLE } from '@/constants/theme';
 import { useThemeColors } from '@/context/theme-context';
 import { ALL_ROUTES } from '@/constants/routes';
 import { findFleetInfo, fleetNotesFor, type FleetBlock } from '@/constants/fleet';
-import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
+import { ICON_SCALE, useAccessibility, type IconSize as IconSizeType } from '@/context/accessibility-context';
 import { GOOGLE_MAPS_IOS_READY, useMapProvider } from '@/context/map-provider-context';
 import { useFavorites } from '@/context/favorites-context';
 import { useUnitCodes } from '@/context/unit-codes-context';
@@ -59,63 +59,84 @@ const MAP_MOUNT_BATCH_DELAY_MS = 50;
 // their already-proven-safe pace.
 const ALL_ROUTES_BATCH_SIZE = Math.ceil(ALL_ROUTES.length / 2);
 
-// Pre-rotated heading-arrow images (36 buckets, 10° apart) swapped via the
-// native `image` prop - the only churn-free way to change a marker's visual
-// on react-native-maps (children + tracksViewChanges caused the fleet-wide
+// Pre-rotated heading-arrow images swapped via the native `image` prop - the
+// only churn-free way to change a marker's visual on react-native-maps
+// (children + tracksViewChanges caused the fleet-wide
 // "TelemetryController::pullTransaction index beyond bounds" crash; keying on
 // heading mass-remounted every bus at once on every poll). Static requires
 // are mandatory - Metro can't resolve a computed path. A composed-view
-// rewrite (single base image, rotated via transform) was tried and reverted
-// again - on real devices the heading arrow could render behind/under the
-// bus icon (only visible once something else forced a re-snapshot, e.g.
-// tapping the bus), a z-order bug distinct from the tracksViewChanges issue
-// that fix targeted. Not worth chasing further - this per-degree-image
-// approach has no such issue and the asset-size cost is negligible.
-const HEADING_ARROW_IMAGES: Record<string, number> = {
-  '000': require('../../assets/images/heading_arrow_000.png'),
-  '010': require('../../assets/images/heading_arrow_010.png'),
-  '020': require('../../assets/images/heading_arrow_020.png'),
-  '030': require('../../assets/images/heading_arrow_030.png'),
-  '040': require('../../assets/images/heading_arrow_040.png'),
-  '050': require('../../assets/images/heading_arrow_050.png'),
-  '060': require('../../assets/images/heading_arrow_060.png'),
-  '070': require('../../assets/images/heading_arrow_070.png'),
-  '080': require('../../assets/images/heading_arrow_080.png'),
-  '090': require('../../assets/images/heading_arrow_090.png'),
-  '100': require('../../assets/images/heading_arrow_100.png'),
-  '110': require('../../assets/images/heading_arrow_110.png'),
-  '120': require('../../assets/images/heading_arrow_120.png'),
-  '130': require('../../assets/images/heading_arrow_130.png'),
-  '140': require('../../assets/images/heading_arrow_140.png'),
-  '150': require('../../assets/images/heading_arrow_150.png'),
-  '160': require('../../assets/images/heading_arrow_160.png'),
-  '170': require('../../assets/images/heading_arrow_170.png'),
-  '180': require('../../assets/images/heading_arrow_180.png'),
-  '190': require('../../assets/images/heading_arrow_190.png'),
-  '200': require('../../assets/images/heading_arrow_200.png'),
-  '210': require('../../assets/images/heading_arrow_210.png'),
-  '220': require('../../assets/images/heading_arrow_220.png'),
-  '230': require('../../assets/images/heading_arrow_230.png'),
-  '240': require('../../assets/images/heading_arrow_240.png'),
-  '250': require('../../assets/images/heading_arrow_250.png'),
-  '260': require('../../assets/images/heading_arrow_260.png'),
-  '270': require('../../assets/images/heading_arrow_270.png'),
-  '280': require('../../assets/images/heading_arrow_280.png'),
-  '290': require('../../assets/images/heading_arrow_290.png'),
-  '300': require('../../assets/images/heading_arrow_300.png'),
-  '310': require('../../assets/images/heading_arrow_310.png'),
-  '320': require('../../assets/images/heading_arrow_320.png'),
-  '330': require('../../assets/images/heading_arrow_330.png'),
-  '340': require('../../assets/images/heading_arrow_340.png'),
-  '350': require('../../assets/images/heading_arrow_350.png'),
+// rewrite (single base image, rotated via transform) was tried twice and
+// reverted both times - on real devices the heading arrow could render
+// behind/under the bus icon (only visible once something else forced a
+// re-snapshot, e.g. tapping the bus), a z-order bug distinct from the
+// tracksViewChanges issue that fix targeted (also now fixed properly below,
+// independent of which rendering approach is used - see BusHeadingMarker's
+// zIndex).
+//
+// 12 buckets (30° apart) x 3 size tiers, not 36 x 5 - deliberately traded
+// rotation smoothness for actually matching Accessibility > Icon Size's
+// bus-icon scale (previously fixed-size regardless of that setting, which
+// read as oversized/"long and pointy" at Small and undersized/hidden at
+// Large) at the SAME total file count as the old 36-bucket single-size set.
+// xs/xl reuse small/large's assets rather than getting their own - a 30°
+// rotation or size-tier mismatch is imperceptible on a marker this small.
+function headingArrowAssetTier(iconSize: IconSizeType): 'small' | 'default' | 'large' {
+  if (iconSize === 'xs') return 'small';
+  if (iconSize === 'xl') return 'large';
+  return iconSize;
+}
+const HEADING_ARROW_IMAGES: Record<'small' | 'default' | 'large', Record<string, number>> = {
+  small: {
+    '000': require('../../assets/images/heading_arrow_small_000.png'),
+    '030': require('../../assets/images/heading_arrow_small_030.png'),
+    '060': require('../../assets/images/heading_arrow_small_060.png'),
+    '090': require('../../assets/images/heading_arrow_small_090.png'),
+    '120': require('../../assets/images/heading_arrow_small_120.png'),
+    '150': require('../../assets/images/heading_arrow_small_150.png'),
+    '180': require('../../assets/images/heading_arrow_small_180.png'),
+    '210': require('../../assets/images/heading_arrow_small_210.png'),
+    '240': require('../../assets/images/heading_arrow_small_240.png'),
+    '270': require('../../assets/images/heading_arrow_small_270.png'),
+    '300': require('../../assets/images/heading_arrow_small_300.png'),
+    '330': require('../../assets/images/heading_arrow_small_330.png'),
+  },
+  default: {
+    '000': require('../../assets/images/heading_arrow_default_000.png'),
+    '030': require('../../assets/images/heading_arrow_default_030.png'),
+    '060': require('../../assets/images/heading_arrow_default_060.png'),
+    '090': require('../../assets/images/heading_arrow_default_090.png'),
+    '120': require('../../assets/images/heading_arrow_default_120.png'),
+    '150': require('../../assets/images/heading_arrow_default_150.png'),
+    '180': require('../../assets/images/heading_arrow_default_180.png'),
+    '210': require('../../assets/images/heading_arrow_default_210.png'),
+    '240': require('../../assets/images/heading_arrow_default_240.png'),
+    '270': require('../../assets/images/heading_arrow_default_270.png'),
+    '300': require('../../assets/images/heading_arrow_default_300.png'),
+    '330': require('../../assets/images/heading_arrow_default_330.png'),
+  },
+  large: {
+    '000': require('../../assets/images/heading_arrow_large_000.png'),
+    '030': require('../../assets/images/heading_arrow_large_030.png'),
+    '060': require('../../assets/images/heading_arrow_large_060.png'),
+    '090': require('../../assets/images/heading_arrow_large_090.png'),
+    '120': require('../../assets/images/heading_arrow_large_120.png'),
+    '150': require('../../assets/images/heading_arrow_large_150.png'),
+    '180': require('../../assets/images/heading_arrow_large_180.png'),
+    '210': require('../../assets/images/heading_arrow_large_210.png'),
+    '240': require('../../assets/images/heading_arrow_large_240.png'),
+    '270': require('../../assets/images/heading_arrow_large_270.png'),
+    '300': require('../../assets/images/heading_arrow_large_300.png'),
+    '330': require('../../assets/images/heading_arrow_large_330.png'),
+  },
 };
 const HEADING_BLANK_IMAGE = require('../../assets/images/heading_blank.png');
 
-function headingArrowImage(heading: number | null | undefined): number {
+function headingArrowImage(heading: number | null | undefined, iconSize: IconSizeType): number {
   if (typeof heading !== 'number' || isNaN(heading)) return HEADING_BLANK_IMAGE;
-  const bucket = (Math.round(heading / 10) * 10) % 360;
+  const bucket = (Math.round(heading / 30) * 30) % 360;
   const key = String(bucket < 0 ? bucket + 360 : bucket).padStart(3, '0');
-  return HEADING_ARROW_IMAGES[key] ?? HEADING_BLANK_IMAGE;
+  const tier = headingArrowAssetTier(iconSize);
+  return HEADING_ARROW_IMAGES[tier][key] ?? HEADING_BLANK_IMAGE;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -2665,6 +2686,7 @@ function BusMarker({
 // HEADING_ARROW_IMAGES' own comment.
 function BusHeadingMarker({ bus, opacity }: { bus: any; opacity: number }) {
   const [ready, setReady] = useState(false);
+  const { iconSize } = useAccessibility();
 
   useEffect(() => {
     let raf2 = 0;
@@ -2681,11 +2703,16 @@ function BusHeadingMarker({ bus, opacity }: { bus: any; opacity: number }) {
     <Marker
       coordinate={{ latitude: bus.lat, longitude: bus.lon }}
       anchor={{ x: 0.5, y: 0.5 }}
-      image={headingArrowImage(bus.heading)}
+      image={headingArrowImage(bus.heading, iconSize)}
       opacity={opacity}
       tracksViewChanges={!ready}
       tappable={false}
-      zIndex={9}
+      // Was 9, one below BusMarker's 10 - barely noticeable at the old
+      // fixed bus-icon size, but once bus icons started scaling with
+      // Accessibility > Icon Size (Large/Extra Large grow well past the
+      // old size), the bigger bus circle increasingly covered this arrow
+      // entirely ("buried"). Now drawn above the bus instead of below it.
+      zIndex={11}
     />
   );
 }
