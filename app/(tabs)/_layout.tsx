@@ -3,12 +3,13 @@ import React from 'react';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
+import { useThemeColors } from '@/context/theme-context';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme ?? 'dark'];
+  const colors = useThemeColors();
+  const { iconSize } = useAccessibility();
+  const tabIconSize = Math.round(26 * ICON_SCALE[iconSize]);
 
   return (
     <Tabs
@@ -26,28 +27,28 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Map',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="map.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="map.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="plan"
         options={{
           title: 'Plan',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="arrow.triangle.turn.up.right.circle.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="arrow.triangle.turn.up.right.circle.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="calendar"
         options={{
           title: 'Calendar',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="calendar" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="calendar" color={color} />,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: 'More',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="line.3.horizontal" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="line.3.horizontal" color={color} />,
         }}
       />
     </Tabs>

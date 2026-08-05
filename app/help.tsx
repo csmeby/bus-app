@@ -1,10 +1,10 @@
 import React from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useThemeColors } from '@/context/theme-context';
 
 const STOP_TYPES = [
   {
@@ -85,8 +85,7 @@ function Paragraphs({ text, color }: { text: string; color: string }) {
 }
 
 export default function HelpScreen() {
-  const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>

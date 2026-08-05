@@ -5,15 +5,14 @@ import {
   Linking,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useThemeColors } from '@/context/theme-context';
 import { API_BASE } from '@/lib/api-base';
 import { cachedJsonFetch } from '@/lib/local-cache';
 
@@ -36,8 +35,7 @@ function formatNewsDate(iso: string): string {
 }
 
 export default function DisruptionsScreen() {
-  const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
   const { route: focusRoute } = useLocalSearchParams<{ route?: string }>();
   const [news, setNews] = useState<NewsItem[]>([]);
   const scrollRef = useRef<ScrollView>(null);

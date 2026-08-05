@@ -1,11 +1,10 @@
 import React from 'react';
-import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
-import { useAppTheme, ThemeMode } from '@/context/theme-context';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Colors } from '@/constants/theme';
+import { useAppTheme, useThemeColors, ThemeMode } from '@/context/theme-context';
 
 const APPEARANCE_OPTIONS: { value: ThemeMode; label: string; description: string }[] = [
   { value: 'system', label: 'System', description: 'Follow device settings' },
@@ -14,8 +13,7 @@ const APPEARANCE_OPTIONS: { value: ThemeMode; label: string; description: string
 ];
 
 export default function ThemeScreen() {
-  const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
   const { mode, setMode } = useAppTheme();
 
   return (

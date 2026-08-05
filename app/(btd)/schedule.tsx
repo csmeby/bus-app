@@ -1,10 +1,11 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import React, { useState } from 'react';
-import { LayoutAnimation, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { LayoutAnimation, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScaledText as Text } from '@/components/scaled-text';
 import { BTD_TINT } from '@/constants/btd-theme';
-import { Colors } from '@/constants/theme';
+import { useThemeColors } from '@/context/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import btdRoutesRaw from '../../btd_routes.json';
 
@@ -82,7 +83,7 @@ const YELLOW_SCHEDULE: { offset: string; label: string }[] = [
 
 export default function BtdScheduleScreen() {
   const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
   const tint = BTD_TINT[scheme];
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 

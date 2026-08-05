@@ -5,14 +5,13 @@ import {
   Modal,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ScaledText as Text } from '@/components/scaled-text';
+import { useThemeColors } from '@/context/theme-context';
 import { API_BASE } from '@/lib/api-base';
 import { cachedJsonFetch } from '@/lib/local-cache';
 
@@ -65,8 +64,7 @@ type GridCell = {
 };
 
 export default function CalendarScreen() {
-  const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
 
   const [viewDate, setViewDate] = useState(() => {
     const d = new Date();

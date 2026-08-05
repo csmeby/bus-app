@@ -2,6 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useColorScheme as useSystemScheme } from 'react-native';
 
+import { Colors, HighContrastColors } from '@/constants/theme';
+import { useAccessibility } from '@/context/accessibility-context';
+
 export type ThemeMode = 'dark' | 'light' | 'system';
 export type ResolvedTheme = 'dark' | 'light';
 
@@ -57,4 +60,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
 export function useAppTheme() {
   return useContext(ThemeContext);
+}
+
+// Drop-in replacement for `Colors[scheme]` that also respects Accessibility
+// > High Contrast (see context/accessibility-context.tsx) - one hook so
+// every screen picking colors this way automatically honors that setting
+// instead of each needing its own highContrast check.
+export function useThemeColors() {
+  const { theme } = useAppTheme();
+  const { highContrast } = useAccessibility();
+  return (highContrast ? HighContrastColors : Colors)[theme];
 }

@@ -1,10 +1,11 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import React from 'react';
-import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScaledText as Text } from '@/components/scaled-text';
 import { BTD_TINT } from '@/constants/btd-theme';
-import { Colors } from '@/constants/theme';
+import { useThemeColors } from '@/context/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 const FIXED_ROUTE_FARES = [
@@ -52,7 +53,7 @@ const RIDING_RULES = [
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
   return (
     <View style={styles.section}>
       <Text style={[styles.sectionLabel, { color: c.textSecondary }]} accessibilityRole="header">{title}</Text>
@@ -63,7 +64,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function FareRow({ label, sub, price, isLast }: { label: string; sub?: string; price: string; isLast?: boolean }) {
   const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
   const tint = BTD_TINT[scheme];
   return (
     <View style={[styles.fareRow, !isLast && [styles.rowBorder, { borderBottomColor: c.border }]]}>
@@ -78,7 +79,7 @@ function FareRow({ label, sub, price, isLast }: { label: string; sub?: string; p
 
 export default function BtdInfoScreen() {
   const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
   const tint = BTD_TINT[scheme];
 
   return (

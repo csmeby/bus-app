@@ -2,18 +2,23 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScaledText as Text } from '@/components/scaled-text';
 import { BTD_TINT } from '@/constants/btd-theme';
-import { Colors } from '@/constants/theme';
+import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
+import { useThemeColors } from '@/context/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { DEFAULT_LAUNCH_BTD_KEY } from '@/lib/onboarding';
 
 export default function BtdMoreScreen() {
   const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
   const tint = BTD_TINT[scheme];
+  const { iconSize } = useAccessibility();
+  const iconScale = ICON_SCALE[iconSize];
+  const rowIconSize = Math.round(22 * iconScale);
   const [launchIntoBtd, setLaunchIntoBtd] = useState(false);
 
   useEffect(() => {
@@ -34,17 +39,54 @@ export default function BtdMoreScreen() {
 
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
           <TouchableOpacity
-            style={styles.row}
+            style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}
             onPress={() => router.push('/theme' as any)}
             activeOpacity={0.6}
             accessibilityRole="button"
             accessibilityLabel="Theme"
             accessibilityHint="Light, dark, or follow system"
           >
-            <MaterialIcons name="brightness-6" size={22} color={tint} style={styles.rowIcon} />
+            <MaterialIcons name="brightness-6" size={rowIconSize} color={tint} style={styles.rowIcon} />
             <View style={styles.rowText}>
               <Text style={[styles.rowLabel, { color: c.text }]}>Theme</Text>
               <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Light, dark, or follow system</Text>
+            </View>
+            <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
+          </TouchableOpacity>
+
+          {/* Android has no Apple Maps to choose between - it's always
+              Google Maps there regardless, so this row only makes sense
+              on iOS. */}
+          {Platform.OS === 'ios' && (
+            <TouchableOpacity
+              style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}
+              onPress={() => router.push('/map-provider' as any)}
+              activeOpacity={0.6}
+              accessibilityRole="button"
+              accessibilityLabel="Map"
+              accessibilityHint="Apple Maps or Google Maps"
+            >
+              <MaterialIcons name="map" size={rowIconSize} color={tint} style={styles.rowIcon} />
+              <View style={styles.rowText}>
+                <Text style={[styles.rowLabel, { color: c.text }]}>Map</Text>
+                <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Apple Maps or Google Maps</Text>
+              </View>
+              <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={styles.row}
+            onPress={() => router.push('/accessibility' as any)}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel="Accessibility"
+            accessibilityHint="Icon/text size, contrast, and motion"
+          >
+            <MaterialIcons name="accessibility-new" size={rowIconSize} color={tint} style={styles.rowIcon} />
+            <View style={styles.rowText}>
+              <Text style={[styles.rowLabel, { color: c.text }]}>Accessibility</Text>
+              <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Icon/text size, contrast, and motion</Text>
             </View>
             <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
           </TouchableOpacity>
@@ -63,7 +105,7 @@ export default function BtdMoreScreen() {
             accessibilityLabel="AggieSpirit Buses"
             accessibilityHint="Switches back to TAMU's bus service"
           >
-            <MaterialIcons name="swap-horiz" size={22} color={tint} style={styles.rowIcon} />
+            <MaterialIcons name="swap-horiz" size={rowIconSize} color={tint} style={styles.rowIcon} />
             <View style={styles.rowText}>
               <Text style={[styles.rowLabel, { color: c.text }]}>AggieSpirit Buses</Text>
               <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Switch back to TAMU&apos;s bus service</Text>
@@ -72,7 +114,7 @@ export default function BtdMoreScreen() {
           </TouchableOpacity>
 
           <View style={styles.row}>
-            <MaterialIcons name="rocket-launch" size={22} color={tint} style={styles.rowIcon} />
+            <MaterialIcons name="rocket-launch" size={rowIconSize} color={tint} style={styles.rowIcon} />
             <View style={styles.rowText}>
               <Text style={[styles.rowLabel, { color: c.text }]}>Load into BTD</Text>
               <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Open straight to BTD instead of the map when you start the app</Text>

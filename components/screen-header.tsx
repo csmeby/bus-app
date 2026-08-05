@@ -1,14 +1,14 @@
 import { router } from 'expo-router';
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ScaledText as Text } from '@/components/scaled-text';
+import { useThemeColors } from '@/context/theme-context';
 
 // Back-arrow + title header shared by every pushed (non-tab) screen, so they
 // all get the same spacing/typography instead of five hand-copied versions.
 export function ScreenHeader({ title, bottomMargin = 20 }: { title: string; bottomMargin?: number }) {
-  const c = Colors[useColorScheme()];
+  const c = useThemeColors();
   return (
     <View style={[styles.header, { marginBottom: bottomMargin }]}>
       <TouchableOpacity

@@ -1,14 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Switch, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
 import { ALL_ROUTES } from '@/constants/routes';
-import { Colors } from '@/constants/theme';
+import { useThemeColors } from '@/context/theme-context';
 import { useFavorites } from '@/context/favorites-context';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { API_BASE } from '@/lib/api-base';
 import {
   AlertPrefs,
@@ -67,8 +67,7 @@ function TimeField({
 }
 
 export default function NotificationsScreen() {
-  const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
   const { favorites } = useFavorites();
 
   const [enabled, setEnabled] = useState(false);

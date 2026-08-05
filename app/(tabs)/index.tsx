@@ -10,19 +10,23 @@ import {
   Image,
   Modal,
   PanResponder,
+  Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_DEFAULT, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
-import { BRAND_MAROON, Colors, DARK_MAP_STYLE } from '@/constants/theme';
+import { ScaledText as Text } from '@/components/scaled-text';
+import { BRAND_MAROON, DARK_MAP_STYLE } from '@/constants/theme';
+import { useThemeColors } from '@/context/theme-context';
 import { ALL_ROUTES } from '@/constants/routes';
 import { findFleetInfo, fleetNotesFor, type FleetBlock } from '@/constants/fleet';
+import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
+import { useMapProvider } from '@/context/map-provider-context';
 import { useFavorites } from '@/context/favorites-context';
 import { useUnitCodes } from '@/context/unit-codes-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -60,7 +64,9 @@ const ALL_ROUTES_BATCH_SIZE = Math.ceil(ALL_ROUTES.length / 2);
 // on react-native-maps (children + tracksViewChanges caused the fleet-wide
 // "TelemetryController::pullTransaction index beyond bounds" crash; keying on
 // heading mass-remounted every bus at once on every poll). Static requires
-// are mandatory - Metro can't resolve a computed path.
+// are mandatory - Metro can't resolve a computed path. A composed-view
+// rewrite (single base image, rotated via transform) was tried and reverted
+// - didn't hold up in testing.
 const HEADING_ARROW_IMAGES: Record<string, number> = {
   '000': require('../../assets/images/heading_arrow_000.png'),
   '010': require('../../assets/images/heading_arrow_010.png'),
@@ -169,6 +175,26 @@ function isOffRoute(lat: number, lon: number, coords: { latitude: number; longit
     }
   }
   return true;
+}
+
+// Accessibility > Reduce Motion (see context/accessibility-context.tsx) -
+// jumps straight to the end value instead of springing when enabled, for
+// the stop panel's slide and its swipe-to-dismiss settle-back. A plain
+// function (not a hook) since it just needs the current reduceMotion flag
+// as a parameter, called from spots that already have it in scope.
+function springOrJump(
+  value: Animated.Value,
+  toValue: number,
+  config: { tension: number; friction: number },
+  reduceMotion: boolean,
+  onDone?: () => void,
+) {
+  if (reduceMotion) {
+    value.setValue(toValue);
+    onDone?.();
+    return;
+  }
+  Animated.spring(value, { toValue, useNativeDriver: false, ...config }).start(onDone);
 }
 
 // Local calendar date, not toISOString() (which is UTC and rolls over to the
@@ -379,7 +405,14 @@ type RerouteDir = {
 
 export default function MapScreen() {
   const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
+  const { reduceMotion } = useAccessibility();
+  // Android has no Apple Maps to switch away from - it's always Google
+  // Maps there. iOS honors the Settings > Map choice (see
+  // context/map-provider-context.tsx); PROVIDER_DEFAULT there means Apple
+  // Maps specifically, not "whatever this platform defaults to."
+  const { mapProvider } = useMapProvider();
+  const provider = Platform.OS === 'ios' && mapProvider === 'google' ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
   const insets = useSafeAreaInsets();
   const { isFavorite } = useFavorites();
   const { enabled: unitCodesEnabled } = useUnitCodes();
@@ -522,6 +555,11 @@ export default function MapScreen() {
   useEffect(() => {
     stopSheetExpandedRef.current = stopSheetExpanded;
   }, [stopSheetExpanded]);
+  // Same reasoning, for the PanResponder's spring-back calls below.
+  const reduceMotionRef = useRef(false);
+  useEffect(() => {
+    reduceMotionRef.current = reduceMotion;
+  }, [reduceMotion]);
   // Monotonic tokens guarding the stop panel's async fetches: any newer fetch
   // (tapping another stop, another date chip, or closing the panel) bumps the
   // counter, so a slow in-flight response for the OLD stop/date can't land
@@ -1452,7 +1490,7 @@ export default function MapScreen() {
     // ever be JS-driven (PanResponder's gestureState is computed in JS, not
     // available to the native driver) - mixing drivers on one node throws
     // "Attempting to run JS driven animation on node ... moved to native".
-    Animated.spring(stopPanelAnim, { toValue: 1, useNativeDriver: false, tension: 80, friction: 10 }).start();
+    springOrJump(stopPanelAnim, 1, { tension: 80, friction: 10 }, reduceMotion);
 
     const relevantRoutes = stop.routes;
 
@@ -1489,7 +1527,7 @@ export default function MapScreen() {
       setStopTimesLoading(false);
       fetchStopSchedule(stop, toDateStr(new Date()));
     }
-  }, [stopPanelAnim, stopSheetDragY, selectedBusName, closeBusCallout, fetchStopSchedule, patchEntryFlags]);
+  }, [stopPanelAnim, stopSheetDragY, selectedBusName, closeBusCallout, fetchStopSchedule, patchEntryFlags, reduceMotion]);
 
   // Tapping a route row to "see all times for the day": when browsing a
   // specific date (stopDate set), the row already came from the full-day
@@ -1536,10 +1574,8 @@ export default function MapScreen() {
 
   const closeStopPanel = useCallback(() => {
     stopReqIdRef.current++; // drop in-flight times/schedule responses for the closed panel
-    Animated.spring(stopPanelAnim, { toValue: 0, useNativeDriver: false, tension: 80, friction: 10 }).start(() =>
-      setSelectedStop(null)
-    );
-  }, [stopPanelAnim]);
+    springOrJump(stopPanelAnim, 0, { tension: 80, friction: 10 }, reduceMotion, () => setSelectedStop(null));
+  }, [stopPanelAnim, reduceMotion]);
 
   // Swipe gesture on the stop sheet's drag handle: down past a threshold
   // dismisses (further still if already expanded, since there's more sheet
@@ -1554,7 +1590,7 @@ export default function MapScreen() {
       onPanResponderMove: Animated.event([null, { dy: stopSheetDragY }], { useNativeDriver: false }),
       onPanResponderRelease: (_evt, gesture) => {
         const expanded = stopSheetExpandedRef.current;
-        const spring = () => Animated.spring(stopSheetDragY, { toValue: 0, useNativeDriver: false, tension: 80, friction: 10 }).start();
+        const spring = () => springOrJump(stopSheetDragY, 0, { tension: 80, friction: 10 }, reduceMotionRef.current);
 
         // A near-motionless touch on the handle - tap to toggle instead of
         // requiring an actual drag at all.
@@ -1589,7 +1625,7 @@ export default function MapScreen() {
         spring();
       },
       onPanResponderTerminate: () => {
-        Animated.spring(stopSheetDragY, { toValue: 0, useNativeDriver: false, tension: 80, friction: 10 }).start();
+        springOrJump(stopSheetDragY, 0, { tension: 80, friction: 10 }, reduceMotionRef.current);
       },
     })
   ).current;
@@ -1745,6 +1781,7 @@ export default function MapScreen() {
     <View style={styles.root}>
       <MapView
         ref={mapRef}
+        provider={provider}
         style={StyleSheet.absoluteFillObject}
         userInterfaceStyle={scheme}
         customMapStyle={scheme === 'dark' ? DARK_MAP_STYLE : []}
@@ -2584,6 +2621,8 @@ function BusMarker({
   onPress: () => void;
 }) {
   const [ready, setReady] = useState(false);
+  const { iconSize } = useAccessibility();
+  const scale = ICON_SCALE[iconSize];
 
   return (
     <Marker
@@ -2596,16 +2635,16 @@ function BusMarker({
       onPress={onPress}
     >
       <View
-        style={styles.busMarkerWrap}
+        style={[styles.busMarkerWrap, { width: 60 * scale, height: 60 * scale }]}
         onLayout={() => requestAnimationFrame(() => setReady(true))}
         accessible
         accessibilityRole="button"
         accessibilityLabel={`Bus ${busDisplayName(bus.name)}, route ${bus.route}${bus.direction ? `, ${bus.direction}` : ''}`}
         accessibilityHint="Shows this bus's details"
       >
-        <View style={[styles.busCircleFill, { backgroundColor: fillColor }]} />
-        <View style={styles.busCircleBorder} />
-        <Image source={require('../../assets/images/bus.png')} style={styles.busIcon} />
+        <View style={[styles.busCircleFill, { backgroundColor: fillColor, width: 26 * scale, height: 26 * scale, borderRadius: 13 * scale }]} />
+        <View style={[styles.busCircleBorder, { width: 30 * scale, height: 30 * scale, borderRadius: 15 * scale }]} />
+        <Image source={require('../../assets/images/bus.png')} style={[styles.busIcon, { width: 24 * scale, height: 24 * scale }]} />
       </View>
     </Marker>
   );
@@ -2725,34 +2764,37 @@ function StopMarker({
 }) {
   const badged = isClosed || isUnserved;
   const [ready, setReady] = useState(false);
+  const { iconSize } = useAccessibility();
+  const scale = ICON_SCALE[iconSize];
 
-  // Re-arms readiness whenever this marker flips between the plain
-  // image-only rendering and the composed badge rendering below - each is a
-  // different native representation needing its own settle-and-snapshot
-  // pass, so a stale `ready` from the other mode can't be inherited across
-  // a badge toggle. Drives readiness outright for the plain path (no child
-  // view to wait on layout for); the composed path instead waits for its
-  // own onLayout below.
+  // ROOT CAUSE FOUND (two composed-view rewrites of the plain path were
+  // tried and reverted before this - see git history): confirmed via
+  // react-native-maps' own GitHub issues (#5728, #5560, #5836) that
+  // `tracksViewChanges` is a dead prop on Android under the New
+  // Architecture - it was never re-wired to native code when Fabric support
+  // landed. Toggling it (what `ready` does below) is a complete no-op there,
+  // which is exactly why neither an onLayout-driven settle NOR a flat
+  // fallback timeout ever fixed anything - both only ever touched this one
+  // now-inert prop. The one thing multiple people confirmed actually works
+  // around it: leave tracksViewChanges permanently true on Android, which
+  // forces a real redraw on every change instead of relying on the broken
+  // snapshot-lock. iOS keeps the real settle logic below (onLayout + double
+  // rAF) - its own residual race (MapKit substituting a default pin if a
+  // child view isn't laid out in time) is a genuine timing issue, not a
+  // dead prop, so the existing mitigation is still doing real work there.
   useEffect(() => {
     setReady(false);
-    if (badged) return;
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => setReady(true));
-    });
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-    };
   }, [badged]);
 
-  // Forces one extra resnap of the composed marker's frozen bitmap once the
-  // map's settled after a zoom/pan - see zoomSettleToken's own comment for
-  // why a badged marker's snapshot can lock in a slightly-off anchor under
-  // mount load. Skipped on the very first mount (ready is already false
-  // then, and the onLayout-driven effect above owns that first snapshot).
+  // Forces one extra resnap of the marker's frozen bitmap once the map's
+  // settled after a zoom/pan (iOS only - see tracksViewChanges above for why
+  // this is meaningless on Android) - a marker's snapshot can lock in a
+  // slightly-off anchor under mount load (e.g. "All Routes" mounting many
+  // stops in one commit). Skipped on the very first mount (ready is already
+  // false then, and the onLayout-driven effect above owns that first
+  // snapshot).
   useEffect(() => {
-    if (!badged || zoomSettleToken === 0 || !ready) return;
+    if (Platform.OS === 'android' || zoomSettleToken === 0 || !ready) return;
     setReady(false);
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
@@ -2765,58 +2807,16 @@ function StopMarker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomSettleToken]);
 
-  if (!badged) {
-    return (
-      <Marker
-        coordinate={stop.coordinate}
-        anchor={{ x: 0.5, y: 0.5 }}
-        // Marker's `image` prop renders at the asset's own intrinsic size -
-        // unlike an <Image style={{width,height}}>, it does NOT scale down
-        // to fit a style box. temp_stop.png/timepoint.png/stop.png are
-        // full-resolution source art (used at much bigger sizes elsewhere -
-        // help.tsx's legend, and the composed badge marker path below,
-        // both of which size them via a normal <Image style>), so using
-        // them directly here rendered every plain stop at native pixel
-        // size - comically huge. These *_marker variants are dedicated to
-        // this one call site (nothing else requires them), so their canvas
-        // is padded with transparent margin out to 60x60pt (matching
-        // busMarkerWrap/stopBadgeMarkerWrap's tap-target size) around the
-        // actual icon - react-native-maps hit-tests a marker's full image
-        // bounding box rather than per-pixel alpha, so that padding grows
-        // the tappable area for free.
-        //
-        // A second, invisible sibling Marker used to carry this same tap
-        // target instead of padding the asset - reverted after it doubled
-        // every plain stop's native marker count and started causing
-        // launch-time "object cannot be nil" crashes in AIRMap's own
-        // (hand-maintained, New Architecture legacy-interop) children
-        // array - see the crash notes on MAP_MOUNT_BATCH_SIZE above. Baking
-        // the padding into the asset itself keeps this back down to one
-        // native child per plain stop, same as before that experiment.
-        image={stop.isTemporary
-          ? require('../../assets/images/temp_stop_marker.png')
-          : isTimepoint
-          ? require('../../assets/images/timepoint_marker.png')
-          : require('../../assets/images/stop_marker.png')}
-        opacity={isVisible ? 1 : 0}
-        tappable={isVisible}
-        tracksViewChanges={!ready}
-        zIndex={0}
-        onPress={() => isVisible && onPress()}
-        accessible
-        accessibilityRole="button"
-        accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}`}
-        accessibilityHint="Shows departure times for this stop"
-      />
-    );
-  }
+  const baseIconSize = stop.isTemporary ? 20 : isTimepoint ? 17 : 26;
 
   return (
     <Marker
       coordinate={stop.coordinate}
       anchor={{ x: 0.5, y: 0.5 }}
-      // !ready covers the initial mount snapshot - see onLayout below.
-      tracksViewChanges={!ready}
+      // !ready covers the initial mount snapshot on iOS - see onLayout
+      // below. Permanently true on Android - see this function's top
+      // comment for why toggling it there never did anything anyway.
+      tracksViewChanges={Platform.OS === 'android' ? true : !ready}
       opacity={isVisible ? 1 : 0}
       tappable={isVisible}
       zIndex={0}
@@ -2836,8 +2836,10 @@ function StopMarker({
         // proportionally more of a 17x17 box than a 26x26 one. Pinning this
         // wrapper to one fixed size (big enough for the largest icon plus
         // badge overflow) and centering the icon inside it makes every
-        // variant snapshot identically.
-        style={styles.closedStopWrap}
+        // variant snapshot identically. Also serves as the tap target for
+        // every stop (react-native-maps hit-tests a marker's full bounding
+        // box).
+        style={[styles.closedStopWrap, { width: 30 * scale, height: 30 * scale }]}
         onLayout={() => {
           // One more frame after layout so the Image has actually had a
           // chance to paint before the snapshot locks in.
@@ -2845,7 +2847,7 @@ function StopMarker({
         }}
         accessible
         accessibilityRole="button"
-        accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}${isUnserved ? ', not served right now due to a detour' : ', closed'}`}
+        accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}${badged ? (isUnserved ? ', not served right now due to a detour' : ', closed') : ''}`}
         accessibilityHint="Shows departure times for this stop"
       >
         <Image
@@ -2860,15 +2862,17 @@ function StopMarker({
               : isTimepoint
               ? styles.timepointIcon
               : styles.stopIcon,
-            styles.closedStopIcon,
+            badged && styles.closedStopIcon,
+            { width: baseIconSize * scale, height: baseIconSize * scale },
           ]}
         />
-        {isUnserved ? (
-          <View style={styles.unservedStopBadge}>
-            <Text style={styles.unservedStopBadgeText}>✕</Text>
+        {isUnserved && (
+          <View style={[styles.unservedStopBadge, { width: 14 * scale, height: 14 * scale, borderRadius: 7 * scale }]}>
+            <Text style={[styles.unservedStopBadgeText, { fontSize: 8 * scale }]}>✕</Text>
           </View>
-        ) : (
-          <View style={styles.closedStopBadge} />
+        )}
+        {isClosed && !isUnserved && (
+          <View style={[styles.closedStopBadge, { width: 10 * scale, height: 10 * scale, borderRadius: 5 * scale }]} />
         )}
       </View>
     </Marker>
@@ -2966,14 +2970,19 @@ const styles = StyleSheet.create({
   // target - anchor stays {0.5, 0.5} so the extra padding is invisible and
   // doesn't shift the icon's visual position.
   busMarkerWrap: { width: 60, height: 60, alignItems: 'center', justifyContent: 'center' },
-  busCircleFill: { position: 'absolute', width: 20, height: 20, borderRadius: 10 },
+  // Sized bigger than busIcon (24x24) on purpose - the icon's own outline
+  // needs to sit safely inside the colored fill, not flush with its edge,
+  // or the parts of the icon that spill past the fill blend straight into
+  // the map itself (especially visible on the darker map style - a black
+  // outline against a near-black map has almost no contrast).
+  busCircleFill: { position: 'absolute', width: 26, height: 26, borderRadius: 13 },
   // Separate ring drawn over the image's own thin baked-in outline, since we
   // can't restyle stroke width/color inside the PNG itself from RN.
   busCircleBorder: {
     position: 'absolute',
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: 2,
     borderColor: '#000000',
   },
@@ -3118,7 +3127,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   calloutSpacer: {
-    height: 150,
+    height: Platform.select({ android: 15, default: 150 }),
   },
   calloutPointer: {
     width: 0,

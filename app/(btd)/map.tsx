@@ -4,17 +4,21 @@ import {
   Animated,
   FlatList,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_DEFAULT, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BTD_TINT } from '@/constants/btd-theme';
-import { Colors, DARK_MAP_STYLE } from '@/constants/theme';
+import { DARK_MAP_STYLE } from '@/constants/theme';
+import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
+import { useMapProvider } from '@/context/map-provider-context';
+import { useThemeColors } from '@/context/theme-context';
+import { ScaledText as Text } from '@/components/scaled-text';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import btdRoutesRaw from '../../btd_routes.json';
 
@@ -138,8 +142,13 @@ function routeArrowPoints(path: { lat: number; lng: number }[]): { coordinate: {
 
 export default function BtdMapScreen() {
   const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
   const tint = BTD_TINT[scheme];
+  const { iconSize } = useAccessibility();
+  const iconScale = ICON_SCALE[iconSize];
+  // See app/(tabs)/index.tsx's own comment on this same pattern.
+  const { mapProvider } = useMapProvider();
+  const provider = Platform.OS === 'ios' && mapProvider === 'google' ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
   const insets = useSafeAreaInsets();
 
   const [selectedRoutes, setSelectedRoutes] = useState<string[]>([]); // Start with no routes selected
@@ -346,6 +355,7 @@ export default function BtdMapScreen() {
     <View style={styles.root}>
       <MapView
         ref={mapRef}
+        provider={provider}
         style={StyleSheet.absoluteFillObject}
         userInterfaceStyle={scheme}
         customMapStyle={scheme === 'dark' ? DARK_MAP_STYLE : []}
@@ -385,13 +395,16 @@ export default function BtdMapScreen() {
               }}
             >
               <View
-                style={[styles.stopBadge, { borderColor: primary.color, backgroundColor: sheetBg }]}
+                style={[
+                  styles.stopBadge,
+                  { borderColor: primary.color, backgroundColor: sheetBg, width: 26 * iconScale, height: 26 * iconScale, borderRadius: 13 * iconScale },
+                ]}
                 accessible
                 accessibilityRole="button"
                 accessibilityLabel={`${stop.label}, bus stop`}
                 accessibilityHint="Shows this stop's schedule"
               >
-                <Text style={[styles.stopBadgeText, { color: primary.color }]}>{primary.number}</Text>
+                <Text style={[styles.stopBadgeText, { color: primary.color, fontSize: 12 * iconScale }]}>{primary.number}</Text>
               </View>
             </Marker>
           );
@@ -606,11 +619,12 @@ export default function BtdMapScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   panel: {
-    position: 'absolute', left: 12, right: 12, borderRadius: 16, borderWidth: 1,
-    padding: 14, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 3 },
+    position: 'absolute', left: 12, right: 12, borderRadius: 18, borderWidth: 1,
+    paddingHorizontal: 14, paddingTop: 12, paddingBottom: 12,
+    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8,
   },
   panelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  panelTitle: { fontSize: 17, fontWeight: '700', letterSpacing: -0.3, flexShrink: 1 },
+  panelTitle: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3, flexShrink: 1 },
   serviceBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -653,18 +667,21 @@ const styles = StyleSheet.create({
   },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
-  sheet: { position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: '75%' },
+  sheet: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: '75%',
+    shadowColor: '#000', shadowOpacity: 0.3, shadowOffset: { width: 0, height: -4 }, shadowRadius: 16, elevation: 12,
+  },
   sheetHandle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 6 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   sheetTitle: { fontSize: 17, fontWeight: '600' },
   sheetDone: { fontSize: 16, fontWeight: '600' },
-  routeRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
-  routeTag: { minWidth: 36, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  routeRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth, gap: 10 },
+  routeTag: { minWidth: 46, borderRadius: 8, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 4 },
   routeTagText: { fontSize: 13, fontWeight: '700', color: '#fff' },
   routeNameWrap: { flex: 1 },
-  routeName: { fontSize: 15, fontWeight: '500' },
+  routeName: { fontSize: 15 },
   routeTerminal: { fontSize: 12, marginTop: 1 },
-  checkmark: { fontSize: 18, fontWeight: '700' },
+  checkmark: { fontSize: 16, fontWeight: '700' },
 
   stopSheet: {
     position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22,

@@ -9,7 +9,6 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
@@ -17,7 +16,8 @@ import {
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Colors } from '@/constants/theme';
+import { ScaledText as Text } from '@/components/scaled-text';
+import { useThemeColors } from '@/context/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { API_BASE } from '@/lib/api-base';
 import routePatterns from '../../routes_patterns.json';
@@ -280,7 +280,7 @@ function LocationField({
   emptyLabel: string;
   searchLabel: string;
   onPick: (point: LatLon, label: string) => void;
-  c: (typeof Colors)['light'];
+  c: ReturnType<typeof useThemeColors>;
 }) {
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
@@ -389,7 +389,7 @@ function LocationField({
 
 export default function PlanRideScreen() {
   const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
 
   const [origin, setOrigin] = useState<LatLon | null>(null);
   const [originLabel, setOriginLabel] = useState<string | null>(null);

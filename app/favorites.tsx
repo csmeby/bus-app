@@ -1,17 +1,16 @@
 import React from 'react';
-import { ScrollView, StyleSheet, View, Text, TouchableOpacity } from 'react-native';
+import { ScrollView, StyleSheet, View, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
 import { useFavorites } from '@/context/favorites-context';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { Colors } from '@/constants/theme';
+import { useThemeColors } from '@/context/theme-context';
 import { ALL_ROUTES } from '@/constants/routes';
 import routePatterns from '../routes_patterns.json';
 
 export default function FavoritesScreen() {
-  const scheme = useColorScheme();
-  const c = Colors[scheme];
+  const c = useThemeColors();
   const { isFavorite, toggleFavorite } = useFavorites();
 
   return (

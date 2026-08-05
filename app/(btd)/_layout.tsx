@@ -4,13 +4,16 @@ import React from 'react';
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { BTD_TINT } from '@/constants/btd-theme';
-import { Colors } from '@/constants/theme';
+import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
+import { useThemeColors } from '@/context/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function BtdTabLayout() {
   const colorScheme = useColorScheme();
   const scheme = colorScheme ?? 'dark';
-  const colors = Colors[scheme];
+  const colors = useThemeColors();
+  const { iconSize } = useAccessibility();
+  const tabIconSize = Math.round(26 * ICON_SCALE[iconSize]);
 
   return (
     <Tabs
@@ -28,28 +31,28 @@ export default function BtdTabLayout() {
         name="map"
         options={{
           title: 'Map',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="bus.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="bus.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="schedule"
         options={{
           title: 'Schedule',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="clock.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="clock.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="info"
         options={{
           title: 'Info',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="info.circle.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="info.circle.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="more"
         options={{
           title: 'More',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="line.3.horizontal" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="line.3.horizontal" color={color} />,
         }}
       />
     </Tabs>
