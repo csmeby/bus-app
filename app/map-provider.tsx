@@ -8,14 +8,10 @@ import { useMapProvider, type MapProviderPref } from '@/context/map-provider-con
 import { useThemeColors } from '@/context/theme-context';
 
 const PROVIDER_OPTIONS: { value: MapProviderPref; label: string; description: string }[] = [
-  { value: 'apple', label: 'Apple Maps', description: 'Default - matches the rest of iOS' },
-  { value: 'google', label: 'Google Maps', description: 'More detailed satellite/street imagery in some areas' },
+  { value: 'apple', label: 'Apple Maps', description: 'Default' },
+  { value: 'google', label: 'Google Maps', description: 'Alternative' },
 ];
 
-// iOS-only screen - Android has no Apple Maps to choose between (it's
-// always Google Maps there), so this route is only ever linked to from
-// the More menus on iOS (see app/(tabs)/settings.tsx and
-// app/(btd)/more.tsx, both gated on Platform.OS === 'ios').
 export default function MapProviderScreen() {
   const c = useThemeColors();
   const { mapProvider, setMapProvider } = useMapProvider();

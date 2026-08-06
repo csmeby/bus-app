@@ -87,49 +87,49 @@ function headingArrowAssetTier(iconSize: IconSizeType): 'small' | 'default' | 'l
 }
 const HEADING_ARROW_IMAGES: Record<'small' | 'default' | 'large', Record<string, number>> = {
   small: {
-    '000': require('../../assets/images/heading_arrow_small_000.png'),
-    '030': require('../../assets/images/heading_arrow_small_030.png'),
-    '060': require('../../assets/images/heading_arrow_small_060.png'),
-    '090': require('../../assets/images/heading_arrow_small_090.png'),
-    '120': require('../../assets/images/heading_arrow_small_120.png'),
-    '150': require('../../assets/images/heading_arrow_small_150.png'),
-    '180': require('../../assets/images/heading_arrow_small_180.png'),
-    '210': require('../../assets/images/heading_arrow_small_210.png'),
-    '240': require('../../assets/images/heading_arrow_small_240.png'),
-    '270': require('../../assets/images/heading_arrow_small_270.png'),
-    '300': require('../../assets/images/heading_arrow_small_300.png'),
-    '330': require('../../assets/images/heading_arrow_small_330.png'),
+    '000': require('../../assets/images/heading/heading_arrow_small_000.png'),
+    '030': require('../../assets/images/heading/heading_arrow_small_030.png'),
+    '060': require('../../assets/images/heading/heading_arrow_small_060.png'),
+    '090': require('../../assets/images/heading/heading_arrow_small_090.png'),
+    '120': require('../../assets/images/heading/heading_arrow_small_120.png'),
+    '150': require('../../assets/images/heading/heading_arrow_small_150.png'),
+    '180': require('../../assets/images/heading/heading_arrow_small_180.png'),
+    '210': require('../../assets/images/heading/heading_arrow_small_210.png'),
+    '240': require('../../assets/images/heading/heading_arrow_small_240.png'),
+    '270': require('../../assets/images/heading/heading_arrow_small_270.png'),
+    '300': require('../../assets/images/heading/heading_arrow_small_300.png'),
+    '330': require('../../assets/images/heading/heading_arrow_small_330.png'),
   },
   default: {
-    '000': require('../../assets/images/heading_arrow_default_000.png'),
-    '030': require('../../assets/images/heading_arrow_default_030.png'),
-    '060': require('../../assets/images/heading_arrow_default_060.png'),
-    '090': require('../../assets/images/heading_arrow_default_090.png'),
-    '120': require('../../assets/images/heading_arrow_default_120.png'),
-    '150': require('../../assets/images/heading_arrow_default_150.png'),
-    '180': require('../../assets/images/heading_arrow_default_180.png'),
-    '210': require('../../assets/images/heading_arrow_default_210.png'),
-    '240': require('../../assets/images/heading_arrow_default_240.png'),
-    '270': require('../../assets/images/heading_arrow_default_270.png'),
-    '300': require('../../assets/images/heading_arrow_default_300.png'),
-    '330': require('../../assets/images/heading_arrow_default_330.png'),
+    '000': require('../../assets/images/heading/heading_arrow_default_000.png'),
+    '030': require('../../assets/images/heading/heading_arrow_default_030.png'),
+    '060': require('../../assets/images/heading/heading_arrow_default_060.png'),
+    '090': require('../../assets/images/heading/heading_arrow_default_090.png'),
+    '120': require('../../assets/images/heading/heading_arrow_default_120.png'),
+    '150': require('../../assets/images/heading/heading_arrow_default_150.png'),
+    '180': require('../../assets/images/heading/heading_arrow_default_180.png'),
+    '210': require('../../assets/images/heading/heading_arrow_default_210.png'),
+    '240': require('../../assets/images/heading/heading_arrow_default_240.png'),
+    '270': require('../../assets/images/heading/heading_arrow_default_270.png'),
+    '300': require('../../assets/images/heading/heading_arrow_default_300.png'),
+    '330': require('../../assets/images/heading/heading_arrow_default_330.png'),
   },
   large: {
-    '000': require('../../assets/images/heading_arrow_large_000.png'),
-    '030': require('../../assets/images/heading_arrow_large_030.png'),
-    '060': require('../../assets/images/heading_arrow_large_060.png'),
-    '090': require('../../assets/images/heading_arrow_large_090.png'),
-    '120': require('../../assets/images/heading_arrow_large_120.png'),
-    '150': require('../../assets/images/heading_arrow_large_150.png'),
-    '180': require('../../assets/images/heading_arrow_large_180.png'),
-    '210': require('../../assets/images/heading_arrow_large_210.png'),
-    '240': require('../../assets/images/heading_arrow_large_240.png'),
-    '270': require('../../assets/images/heading_arrow_large_270.png'),
-    '300': require('../../assets/images/heading_arrow_large_300.png'),
-    '330': require('../../assets/images/heading_arrow_large_330.png'),
+    '000': require('../../assets/images/heading/heading_arrow_large_000.png'),
+    '030': require('../../assets/images/heading/heading_arrow_large_030.png'),
+    '060': require('../../assets/images/heading/heading_arrow_large_060.png'),
+    '090': require('../../assets/images/heading/heading_arrow_large_090.png'),
+    '120': require('../../assets/images/heading/heading_arrow_large_120.png'),
+    '150': require('../../assets/images/heading/heading_arrow_large_150.png'),
+    '180': require('../../assets/images/heading/heading_arrow_large_180.png'),
+    '210': require('../../assets/images/heading/heading_arrow_large_210.png'),
+    '240': require('../../assets/images/heading/heading_arrow_large_240.png'),
+    '270': require('../../assets/images/heading/heading_arrow_large_270.png'),
+    '300': require('../../assets/images/heading/heading_arrow_large_300.png'),
+    '330': require('../../assets/images/heading/heading_arrow_large_330.png'),
   },
 };
-const HEADING_BLANK_IMAGE = require('../../assets/images/heading_blank.png');
+const HEADING_BLANK_IMAGE = require('../../assets/images/heading/heading_blank.png');
 
 function headingArrowImage(heading: number | null | undefined, iconSize: IconSizeType): number {
   if (typeof heading !== 'number' || isNaN(heading)) return HEADING_BLANK_IMAGE;
@@ -137,6 +137,39 @@ function headingArrowImage(heading: number | null | undefined, iconSize: IconSiz
   const key = String(bucket < 0 ? bucket + 360 : bucket).padStart(3, '0');
   const tier = headingArrowAssetTier(iconSize);
   return HEADING_ARROW_IMAGES[tier][key] ?? HEADING_BLANK_IMAGE;
+}
+
+// Same problem, same fix as the heading arrows above, applied to the plain
+// (unbadged) stop icon: react-native-maps' Marker `image` prop is rendered
+// natively with no JS child view to snapshot, so it sidesteps the Fabric
+// custom-marker-snapshot bug entirely (see StopMarker's own comment) rather
+// than trying to time around it. Pre-scaled per icon-size tier (same 3-tier
+// small/default/large scheme as the arrows, via headingArrowAssetTier) since
+// the native `image` prop renders at the image's own intrinsic size and
+// can't be resized live via a style prop. Only a closed/unserved stop, which
+// still needs a badge composited on top, falls back to the composed-view
+// path below (and pays for its residual Fabric race, same as before).
+const STOP_MARKER_IMAGES: Record<'small' | 'default' | 'large', Record<'stop' | 'temp_stop' | 'timepoint', number>> = {
+  small: {
+    stop: require('../../assets/images/stop_marker_stop_small.png'),
+    temp_stop: require('../../assets/images/stop_marker_temp_stop_small.png'),
+    timepoint: require('../../assets/images/stop_marker_timepoint_small.png'),
+  },
+  default: {
+    stop: require('../../assets/images/stop_marker_stop_default.png'),
+    temp_stop: require('../../assets/images/stop_marker_temp_stop_default.png'),
+    timepoint: require('../../assets/images/stop_marker_timepoint_default.png'),
+  },
+  large: {
+    stop: require('../../assets/images/stop_marker_stop_large.png'),
+    temp_stop: require('../../assets/images/stop_marker_temp_stop_large.png'),
+    timepoint: require('../../assets/images/stop_marker_timepoint_large.png'),
+  },
+};
+
+function stopMarkerImage(variant: 'stop' | 'temp_stop' | 'timepoint', iconSize: IconSizeType): number {
+  const tier = headingArrowAssetTier(iconSize);
+  return STOP_MARKER_IMAGES[tier][variant];
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -431,13 +464,22 @@ type RerouteDir = {
 export default function MapScreen() {
   const scheme = useColorScheme();
   const c = useThemeColors();
-  const { reduceMotion } = useAccessibility();
+  const { reduceMotion, iconSize: currentIconSize } = useAccessibility();
   // Android has no Apple Maps to switch away from - it's always Google
   // Maps there. iOS honors the Settings > Map choice (see
   // context/map-provider-context.tsx); PROVIDER_DEFAULT there means Apple
   // Maps specifically, not "whatever this platform defaults to."
   const { mapProvider } = useMapProvider();
   const provider = Platform.OS === 'ios' && mapProvider === 'google' && GOOGLE_MAPS_IOS_READY ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
+  // tracksViewChanges is a dead prop on the Google Maps renderer under the
+  // New Architecture (Android always uses it; iOS can now opt in too via
+  // Settings > Map) - toggling it never re-snapshots a custom marker view,
+  // so anything relying on a one-shot true->false flip to freeze AFTER its
+  // first real paint can get stuck on a blank/default icon if that first
+  // paint races the snapshot. Apple Maps' renderer doesn't have this bug -
+  // its tracksViewChanges toggling genuinely works, so this only forces the
+  // always-true workaround on the renderer that actually needs it.
+  const isGoogleMaps = provider === PROVIDER_GOOGLE;
   const insets = useSafeAreaInsets();
   const { isFavorite } = useFavorites();
   const { enabled: unitCodesEnabled } = useUnitCodes();
@@ -524,6 +566,23 @@ export default function MapScreen() {
   // launch - nothing is drawn until the rider actively picks a route.
   const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set());
   const [routePickerOpen, setRoutePickerOpen] = useState(false);
+
+  // Switching Accessibility > Icon Size re-renders every marker AND every
+  // polyline at once (every marker's own scale prop changes) - on the
+  // Google Maps renderer that mass-simultaneous prop update was leaving
+  // polylines visually stuck on their PREVIOUS strokeColor/strokeWidth. A
+  // pulse-off-then-back-on auto-restore was tried first and didn't fix it
+  // on-device, so this just closes any open routes outright instead - see
+  // the accessibility screen's own note next to the Icon Size slider, which
+  // tells the rider this will happen.
+  const iconSizeMountedRef = useRef(false);
+  useEffect(() => {
+    if (!iconSizeMountedRef.current) {
+      iconSizeMountedRef.current = true;
+      return;
+    }
+    setSelectedRoutes(new Set());
+  }, [currentIconSize]);
 
   // Normally 'slide' (the sheet's own open/close animation). Forced to
   // 'none' for the one instant right before navigating to the disruptions
@@ -1931,6 +1990,7 @@ export default function MapScreen() {
               fillColor={color}
               opacity={opacity}
               tappable
+              isGoogleMaps={isGoogleMaps}
               onPress={() => openBusCallout(bus)}
             />
           );
@@ -1952,6 +2012,7 @@ export default function MapScreen() {
             isUnserved={unservedVisibleStopCodes.has(stop.code)}
             isTimepoint={isStopTimepointForSelection(stop)}
             zoomSettleToken={zoomSettleToken}
+            isGoogleMaps={isGoogleMaps}
             onPress={() => openStopPanel(stop)}
           />
         ))}
@@ -1970,7 +2031,7 @@ export default function MapScreen() {
             key={`${selectedBus.name}-callout`}
             coordinate={{ latitude: selectedBus.lat, longitude: selectedBus.lon }}
             anchor={{ x: 0.5, y: 1 }}
-            tracksViewChanges={calloutRefreshPulse}
+            tracksViewChanges={isGoogleMaps || calloutRefreshPulse}
             tappable={false}
             zIndex={100}
           >
@@ -2637,15 +2698,18 @@ function BusMarker({
   fillColor,
   opacity,
   tappable,
+  isGoogleMaps,
   onPress,
 }: {
   bus: any;
   fillColor: string;
   opacity: number;
   tappable: boolean;
+  isGoogleMaps: boolean;
   onPress: () => void;
 }) {
   const [ready, setReady] = useState(false);
+  const [, setImgLoadTick] = useState(0);
   const { iconSize } = useAccessibility();
   const scale = ICON_SCALE[iconSize];
 
@@ -2655,7 +2719,7 @@ function BusMarker({
       anchor={{ x: 0.5, y: 0.5 }}
       opacity={opacity}
       tappable={tappable}
-      tracksViewChanges={!ready}
+      tracksViewChanges={isGoogleMaps ? true : !ready}
       zIndex={10}
       onPress={onPress}
     >
@@ -2667,9 +2731,16 @@ function BusMarker({
         accessibilityLabel={`Bus ${busDisplayName(bus.name)}, route ${bus.route}${bus.direction ? `, ${bus.direction}` : ''}`}
         accessibilityHint="Shows this bus's details"
       >
-        <View style={[styles.busCircleFill, { backgroundColor: fillColor, width: 22 * scale, height: 22 * scale, borderRadius: 11 * scale }]} />
-        <View style={[styles.busCircleBorder, { width: 26 * scale, height: 26 * scale, borderRadius: 13 * scale }]} />
-        <Image source={require('../../assets/images/bus.png')} style={[styles.busIcon, { width: 20 * scale, height: 20 * scale }]} />
+        <View style={[styles.busCircleFill, { backgroundColor: fillColor, width: 20 * scale, height: 20 * scale, borderRadius: 10 * scale }]} />
+        <View style={[styles.busCircleBorder, { width: 23 * scale, height: 23 * scale, borderRadius: 11.5 * scale }]} />
+        <Image
+          source={require('../../assets/images/bus.png')}
+          // See StopMarker's onLoadEnd comment - same decode-race fix,
+          // cheap insurance here even though buses' own position polling
+          // already forces frequent re-renders that tend to self-heal this.
+          onLoadEnd={() => setImgLoadTick(t => t + 1)}
+          style={[styles.busIcon, { width: 18 * scale, height: 18 * scale }]}
+        />
       </View>
     </Marker>
   );
@@ -2684,7 +2755,7 @@ function BusMarker({
 // before the first snapshot locks in. A composed-view (rotated base image)
 // rewrite was tried twice and reverted both times - see git history and
 // HEADING_ARROW_IMAGES' own comment.
-function BusHeadingMarker({ bus, opacity }: { bus: any; opacity: number }) {
+function BusHeadingMarker({ bus, opacity, isGoogleMaps }: { bus: any; opacity: number; isGoogleMaps: boolean }) {
   const [ready, setReady] = useState(false);
   const { iconSize } = useAccessibility();
 
@@ -2705,7 +2776,7 @@ function BusHeadingMarker({ bus, opacity }: { bus: any; opacity: number }) {
       anchor={{ x: 0.5, y: 0.5 }}
       image={headingArrowImage(bus.heading, iconSize)}
       opacity={opacity}
-      tracksViewChanges={!ready}
+      tracksViewChanges={isGoogleMaps ? true : !ready}
       tappable={false}
       // Was 9, one below BusMarker's 10 - barely noticeable at the old
       // fixed bus-icon size, but once bus icons started scaling with
@@ -2725,12 +2796,14 @@ function GlidingBus({
   fillColor,
   opacity,
   tappable,
+  isGoogleMaps,
   onPress,
 }: {
   bus: any;
   fillColor: string;
   opacity: number;
   tappable: boolean;
+  isGoogleMaps: boolean;
   onPress: () => void;
 }) {
   const pos = useGlideCoordinate(bus.lat, bus.lon);
@@ -2742,9 +2815,10 @@ function GlidingBus({
         fillColor={fillColor}
         opacity={opacity}
         tappable={tappable}
+        isGoogleMaps={isGoogleMaps}
         onPress={onPress}
       />
-      <BusHeadingMarker bus={glidingBus} opacity={opacity} />
+      <BusHeadingMarker bus={glidingBus} opacity={opacity} isGoogleMaps={isGoogleMaps} />
     </>
   );
 }
@@ -2785,6 +2859,7 @@ function StopMarker({
   isUnserved,
   isTimepoint,
   zoomSettleToken,
+  isGoogleMaps,
   onPress,
 }: {
   stop: Stop;
@@ -2793,10 +2868,15 @@ function StopMarker({
   isUnserved: boolean;
   isTimepoint: boolean;
   zoomSettleToken: number;
+  isGoogleMaps: boolean;
   onPress: () => void;
 }) {
   const badged = isClosed || isUnserved;
   const [ready, setReady] = useState(false);
+  // See the Image's onLoadEnd comment below - a pure counter so every
+  // decode completion forces a genuinely new render, not just a boolean
+  // that could already be at its target value.
+  const [, setImgLoadTick] = useState(0);
   const { iconSize } = useAccessibility();
   const scale = ICON_SCALE[iconSize];
 
@@ -2819,6 +2899,23 @@ function StopMarker({
     setReady(false);
   }, [badged]);
 
+  // Unbadged (image-prop) path has no child view to hook an onLayout off
+  // of, so its "safe to lock the snapshot/redraw" settle timing is a mount-
+  // style double rAF instead - same as BusHeadingMarker's own image-prop
+  // marker. Re-runs whenever a stop flips FROM badged back to unbadged,
+  // since that's effectively a fresh image-prop marker for this purpose.
+  useEffect(() => {
+    if (badged) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [badged]);
+
   // Forces one extra resnap of the marker's frozen bitmap once the map's
   // settled after a zoom/pan (iOS only - see tracksViewChanges above for why
   // this is meaningless on Android) - a marker's snapshot can lock in a
@@ -2827,7 +2924,7 @@ function StopMarker({
   // false then, and the onLayout-driven effect above owns that first
   // snapshot).
   useEffect(() => {
-    if (Platform.OS === 'android' || zoomSettleToken === 0 || !ready) return;
+    if (isGoogleMaps || zoomSettleToken === 0 || !ready) return;
     setReady(false);
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
@@ -2842,14 +2939,36 @@ function StopMarker({
 
   const baseIconSize = stop.isTemporary ? 20 : isTimepoint ? 17 : 26;
 
+  // Unbadged path: no composed child view at all, so there's nothing for
+  // Fabric to race/snapshot-lock in the first place - see this function's
+  // top comment. Same mount-settle dance BusHeadingMarker already uses for
+  // its own image-prop marker (double rAF, no onLayout since there's no
+  // child view to hook one off of).
+  if (!badged) {
+    const variant = stop.isTemporary ? 'temp_stop' : isTimepoint ? 'timepoint' : 'stop';
+    return (
+      <Marker
+        coordinate={stop.coordinate}
+        anchor={{ x: 0.5, y: 0.5 }}
+        image={stopMarkerImage(variant, iconSize)}
+        tracksViewChanges={isGoogleMaps ? true : !ready}
+        opacity={isVisible ? 1 : 0}
+        tappable={isVisible}
+        zIndex={0}
+        onPress={() => isVisible && onPress()}
+      />
+    );
+  }
+
   return (
     <Marker
       coordinate={stop.coordinate}
       anchor={{ x: 0.5, y: 0.5 }}
-      // !ready covers the initial mount snapshot on iOS - see onLayout
-      // below. Permanently true on Android - see this function's top
-      // comment for why toggling it there never did anything anyway.
-      tracksViewChanges={Platform.OS === 'android' ? true : !ready}
+      // !ready covers the initial mount snapshot on the Apple Maps
+      // renderer - see onLayout below. Permanently true on the Google Maps
+      // renderer (Android always, iOS optionally) - see this function's
+      // top comment for why toggling it there never did anything anyway.
+      tracksViewChanges={isGoogleMaps ? true : !ready}
       opacity={isVisible ? 1 : 0}
       tappable={isVisible}
       zIndex={0}
@@ -2889,6 +3008,18 @@ function StopMarker({
             : isTimepoint
             ? require('../../assets/images/timepoint.png')
             : require('../../assets/images/stop.png')}
+          // onLoadEnd fires once the bitmap has actually decoded - the
+          // ONLY reliable "safe to snapshot now" signal on Google Maps
+          // (see the isGoogleMaps note above). onLayout fires as soon as
+          // this View is measured, which is well before a local Image
+          // asset finishes decoding on Android; snapshotting on that timing
+          // alone was locking in a blank/still-loading bitmap forever
+          // (nothing else ever re-renders this marker to retry). imgLoadTick
+          // is a plain counter, not a boolean, so it forces a genuinely NEW
+          // render every time - reusing `ready` here wouldn't, since it's
+          // already true after the layout-driven effect and setting the
+          // same value again is a no-op re-render.
+          onLoadEnd={() => setImgLoadTick(t => t + 1)}
           style={[
             stop.isTemporary
               ? styles.tempStopIcon

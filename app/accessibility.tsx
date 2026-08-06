@@ -93,7 +93,7 @@ export default function AccessibilityScreen() {
         <View style={[styles.section, styles.rowBorder, { borderBottomColor: c.border }]}>
           <Text style={[styles.sectionLabel, { color: c.text }]}>Icon Size</Text>
           <Text style={[styles.sectionDesc, { color: c.textSecondary }]}>
-            Scales map markers and tab bar icons.
+            Scales map markers and tab bar icons. Changing this will close any routes you have open on the map.
           </Text>
           <SliderRow
             options={ICON_SIZES}

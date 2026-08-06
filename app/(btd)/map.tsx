@@ -149,6 +149,12 @@ export default function BtdMapScreen() {
   // See app/(tabs)/index.tsx's own comment on this same pattern.
   const { mapProvider } = useMapProvider();
   const provider = Platform.OS === 'ios' && mapProvider === 'google' && GOOGLE_MAPS_IOS_READY ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
+  // tracksViewChanges is a dead prop on the Google Maps renderer under the
+  // New Architecture - a marker frozen at `false` never gets a chance to
+  // re-snapshot its custom child view if the initial mount-time snapshot
+  // races the view's own layout, silently leaving no icon at all. See
+  // app/(tabs)/index.tsx's StopMarker for the full writeup.
+  const isGoogleMaps = provider === PROVIDER_GOOGLE;
   const insets = useSafeAreaInsets();
 
   const [selectedRoutes, setSelectedRoutes] = useState<string[]>([]); // Start with no routes selected
@@ -383,7 +389,7 @@ export default function BtdMapScreen() {
               key={stop.key}
               coordinate={{ latitude: stop.lat, longitude: stop.lng }}
               anchor={{ x: 0.5, y: 0.5 }}
-              tracksViewChanges={false}
+              tracksViewChanges={isGoogleMaps}
               zIndex={3}
               onPress={e => {
                 // Without this, the tap bubbles up to the MapView's own
@@ -419,7 +425,7 @@ export default function BtdMapScreen() {
               key={`btd-arrow-${routeNum}-${i}`}
               coordinate={{ latitude: pt.coordinate.lat, longitude: pt.coordinate.lng }}
               anchor={{ x: 0.5, y: 0.5 }}
-              tracksViewChanges={false}
+              tracksViewChanges={isGoogleMaps}
               tappable={false}
               zIndex={2}
             >
