@@ -1,5 +1,6 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -9,7 +10,26 @@ import { useThemeColors } from '@/context/theme-context';
 export default function TabLayout() {
   const colors = useThemeColors();
   const { iconSize } = useAccessibility();
-  const tabIconSize = Math.round(26 * ICON_SCALE[iconSize]);
+  const scale = ICON_SCALE[iconSize];
+  const tabIconSize = Math.round(26 * scale);
+  const insets = useSafeAreaInsets();
+  // React Navigation's default tab bar height is a fixed constant that
+  // never grows with tabBarIcon's own size - iOS's default happens to have
+  // enough slack that a larger icon squeezes in without clipping, but
+  // Android's doesn't, so Accessibility > Icon Size at Large/XL clips the
+  // icon/label against the bar edge there specifically. Scaling the bar's
+  // own height (and label size) right along with the icon fixes it on both,
+  // and is a no-op at the default icon size since scale=1 there.
+  const tabBarContentHeight = Math.round(50 * Math.max(1, scale));
+  // That height fix alone wasn't enough - @react-navigation/bottom-tabs'
+  // own TabBarIcon wraps whatever `tabBarIcon` renders in a box whose size
+  // is a FIXED constant (~31x28, from Apple HIG numbers) regardless of the
+  // icon we actually render inside it. At larger scales our IconSymbol
+  // overflows that box, but the label below is laid out assuming the small
+  // fixed box, so it collides with the oversized icon instead of leaving
+  // room for it. tabBarIconStyle overrides that wrapper's own dimensions
+  // directly, so the library reserves the right amount of space.
+  const tabBarIconStyle = { width: tabIconSize, height: tabIconSize };
 
   return (
     <Tabs
@@ -19,7 +39,12 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
+          height: tabBarContentHeight + insets.bottom,
+          paddingTop: 6,
+          paddingBottom: Math.max(insets.bottom, 6),
         },
+        tabBarLabelStyle: { fontSize: Math.round(11 * Math.max(1, scale)) },
+        tabBarIconStyle,
         headerShown: false,
         tabBarButton: HapticTab,
       }}>

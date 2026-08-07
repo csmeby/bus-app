@@ -18,6 +18,8 @@ import {
   View,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_DEFAULT, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
+
+import { MarkerImageFactory, useMarkerImage } from '@/lib/marker-image-factory';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 
@@ -1999,6 +2001,7 @@ export default function MapScreen() {
 
   return (
     <View style={styles.root}>
+      <MarkerImageFactory />
       <MapView
         // Apple Maps (MapKit, native class AIRMap) and Google Maps (native
         // class AIRGoogleMap) are two entirely different native views -
@@ -2868,6 +2871,8 @@ function BusMarker({
   const [, setImgLoadTick] = useState(0);
   const { iconSize } = useAccessibility();
   const scale = ICON_SCALE[iconSize];
+  const wrapSize = 60 * scale;
+  const circleSize = 20 * scale;
 
   // Separate from `ready` above (which is driven by the composed-view's own
   // onLayout, Apple-Maps-branch only) - the ring/icon image marker below has
@@ -2886,6 +2891,23 @@ function BusMarker({
     };
   }, [isGoogleMaps]);
 
+  // iOS's Google Maps SDK never successfully snapshots a composed-View
+  // Marker at all - unlike Android's Google Maps, which just gets stuck on
+  // a stale frame (tracksViewChanges=true forever fixes that one), iOS's
+  // Google renderer simply never paints the fill circle below in the first
+  // place. Route colors come from a live API, so they can't be pre-baked
+  // into a static asset the way the ring/glyph image is - this captures the
+  // exact same composed content into a real bitmap ONCE per distinct color
+  // (see lib/marker-image-factory) and swaps to the native `image` prop,
+  // which needs no snapshot pass. Android keeps the composed-view approach
+  // below unchanged since it already works there.
+  const circleImageKey = Platform.OS === 'ios' && isGoogleMaps ? `bus-circle-${fillColor}-${wrapSize}` : null;
+  const circleImageUri = useMarkerImage(circleImageKey, () => (
+    <View style={[styles.busMarkerWrap, { width: wrapSize, height: wrapSize }]}>
+      <View style={[styles.busCircleFill, { backgroundColor: fillColor, width: circleSize, height: circleSize, borderRadius: circleSize / 2 }]} />
+    </View>
+  ), wrapSize, wrapSize);
+
   if (isGoogleMaps) {
     // Two markers sharing one coordinate, same pairing pattern as
     // GlidingBus/BusHeadingMarker below - a plain color-fill Marker (no
@@ -2899,24 +2921,30 @@ function BusMarker({
           anchor={{ x: 0.5, y: 0.5 }}
           opacity={opacity}
           tappable={tappable}
-          tracksViewChanges={true}
+          tracksViewChanges={!circleImageUri}
           zIndex={10}
           onPress={onPress}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel={`Bus ${busDisplayName(bus.name)}, route ${bus.route}${bus.direction ? `, ${bus.direction}` : ''}`}
+          accessibilityHint="Shows this bus's details"
+          {...(circleImageUri ? { image: { uri: circleImageUri } } : {})}
         >
           {/* Same fixed-size invisible tap-target wrapper approach as
               StopMarker's closedStopWrap - the visible fill circle (20pt) is
               much smaller than the old single-marker's full tap target
               (60pt), so without this wrapper the hit region would shrink
-              along with it. */}
-          <View
-            style={[styles.busMarkerWrap, { width: 60 * scale, height: 60 * scale }]}
-            accessible
-            accessibilityRole="button"
-            accessibilityLabel={`Bus ${busDisplayName(bus.name)}, route ${bus.route}${bus.direction ? `, ${bus.direction}` : ''}`}
-            accessibilityHint="Shows this bus's details"
-          >
-            <View style={[styles.busCircleFill, { backgroundColor: fillColor, width: 20 * scale, height: 20 * scale, borderRadius: 10 * scale }]} />
-          </View>
+              along with it. Only rendered on iOS until circleImageUri is
+              ready (a captured image and this composed fallback can't both
+              meaningfully apply at once) - Android always takes this path,
+              same as before. */}
+          {!circleImageUri && (
+            <View
+              style={[styles.busMarkerWrap, { width: wrapSize, height: wrapSize }]}
+            >
+              <View style={[styles.busCircleFill, { backgroundColor: fillColor, width: circleSize, height: circleSize, borderRadius: circleSize / 2 }]} />
+            </View>
+          )}
         </Marker>
         <Marker
           coordinate={{ latitude: bus.lat, longitude: bus.lon }}

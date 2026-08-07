@@ -1,5 +1,6 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -13,7 +14,19 @@ export default function BtdTabLayout() {
   const scheme = colorScheme ?? 'dark';
   const colors = useThemeColors();
   const { iconSize } = useAccessibility();
-  const tabIconSize = Math.round(26 * ICON_SCALE[iconSize]);
+  const scale = ICON_SCALE[iconSize];
+  const tabIconSize = Math.round(26 * scale);
+  const insets = useSafeAreaInsets();
+  // See app/(tabs)/_layout.tsx's own comment on this same pattern - React
+  // Navigation's default tab bar height doesn't grow with tabBarIcon's own
+  // size, which clips a scaled-up icon/label against the bar edge on
+  // Android specifically (iOS's default has enough slack to absorb it).
+  const tabBarContentHeight = Math.round(50 * Math.max(1, scale));
+  // See app/(tabs)/_layout.tsx's own comment on this same line - the height
+  // fix alone isn't enough, @react-navigation/bottom-tabs' icon wrapper is a
+  // fixed-size box regardless of what's rendered inside it, so the label
+  // collides with an oversized icon unless this is overridden directly.
+  const tabBarIconStyle = { width: tabIconSize, height: tabIconSize };
 
   return (
     <Tabs
@@ -23,7 +36,12 @@ export default function BtdTabLayout() {
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
+          height: tabBarContentHeight + insets.bottom,
+          paddingTop: 6,
+          paddingBottom: Math.max(insets.bottom, 6),
         },
+        tabBarLabelStyle: { fontSize: Math.round(11 * Math.max(1, scale)) },
+        tabBarIconStyle,
         headerShown: false,
         tabBarButton: HapticTab,
       }}>

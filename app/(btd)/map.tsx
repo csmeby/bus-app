@@ -20,6 +20,7 @@ import { GOOGLE_MAPS_IOS_READY, useMapProvider } from '@/context/map-provider-co
 import { useThemeColors } from '@/context/theme-context';
 import { ScaledText as Text } from '@/components/scaled-text';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { MarkerImageFactory, useMarkerImage } from '@/lib/marker-image-factory';
 import btdRoutesRaw from '../../btd_routes.json';
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -372,6 +373,7 @@ export default function BtdMapScreen() {
 
   return (
     <View style={styles.root}>
+      <MarkerImageFactory />
       <MapView
         // See app/(tabs)/index.tsx's own comment on this same line - Apple
         // Maps and Google Maps are different native classes, and switching
@@ -408,34 +410,15 @@ export default function BtdMapScreen() {
         {mergedStops.map(stop => {
           const primary = [...stop.routes].sort((a, b) => a.route.localeCompare(b.route))[0];
           return (
-            <Marker
+            <BtdStopMarker
               key={stop.key}
-              coordinate={{ latitude: stop.lat, longitude: stop.lng }}
-              anchor={{ x: 0.5, y: 0.5 }}
-              tracksViewChanges={isGoogleMaps}
-              zIndex={3}
-              onPress={e => {
-                // Without this, the tap bubbles up to the MapView's own
-                // onPress (closeStop) right after this handler runs — the
-                // sheet would open and get immediately snapped shut in the
-                // same gesture.
-                e.stopPropagation();
-                openStop(stop);
-              }}
-            >
-              <View
-                style={[
-                  styles.stopBadge,
-                  { borderColor: primary.color, backgroundColor: sheetBg, width: 26 * iconScale, height: 26 * iconScale, borderRadius: 13 * iconScale },
-                ]}
-                accessible
-                accessibilityRole="button"
-                accessibilityLabel={`${stop.label}, bus stop`}
-                accessibilityHint="Shows this stop's schedule"
-              >
-                <Text style={[styles.stopBadgeText, { color: primary.color, fontSize: 12 * iconScale }]}>{primary.number}</Text>
-              </View>
-            </Marker>
+              stop={stop}
+              primary={primary}
+              sheetBg={sheetBg}
+              iconScale={iconScale}
+              isGoogleMaps={isGoogleMaps}
+              onPress={() => openStop(stop)}
+            />
           );
         })}
 
@@ -444,18 +427,12 @@ export default function BtdMapScreen() {
             along each active route's line stand in for that. */}
         {routeArrows.flatMap(({ routeNum, color, points }) =>
           points.map((pt, i) => (
-            <Marker
+            <BtdArrowMarker
               key={`btd-arrow-${routeNum}-${i}`}
-              coordinate={{ latitude: pt.coordinate.lat, longitude: pt.coordinate.lng }}
-              anchor={{ x: 0.5, y: 0.5 }}
-              tracksViewChanges={isGoogleMaps}
-              tappable={false}
-              zIndex={2}
-            >
-              <View style={[styles.arrowPivot, { transform: [{ rotate: `${pt.heading}deg` }] }]}>
-                <View style={[styles.arrowGlyph, { borderBottomColor: color }]} />
-              </View>
-            </Marker>
+              pt={pt}
+              color={color}
+              isGoogleMaps={isGoogleMaps}
+            />
           ))
         )}
         </>}
@@ -643,6 +620,103 @@ export default function BtdMapScreen() {
         </Animated.View>
       )}
     </View>
+  );
+}
+
+// See app/(tabs)/index.tsx's BusMarker for the full writeup of why this
+// exists: iOS's Google Maps SDK never successfully snapshots a composed-View
+// Marker at all (Android's Google Maps just gets stuck on a stale frame,
+// which tracksViewChanges=true forever already fixes) - so this stop badge
+// (route color + number, both dynamic/live-API data that can't be
+// pre-baked into a static asset) needs to be captured into a real bitmap at
+// runtime and swapped to the native `image` prop on iOS+Google specifically.
+// Pulled into its own component (rather than inline in the .map() above)
+// because useMarkerImage is a hook - it can't be called from inside a loop.
+function BtdStopMarker({
+  stop,
+  primary,
+  sheetBg,
+  iconScale,
+  isGoogleMaps,
+  onPress,
+}: {
+  stop: MergedStop;
+  primary: MergedStop['routes'][number];
+  sheetBg: string;
+  iconScale: number;
+  isGoogleMaps: boolean;
+  onPress: () => void;
+}) {
+  const size = 26 * iconScale;
+  const imageKey = Platform.OS === 'ios' && isGoogleMaps
+    ? `btd-stop-${primary.color}-${sheetBg}-${primary.number}-${size}`
+    : null;
+  const imageUri = useMarkerImage(imageKey, () => (
+    <View style={[styles.stopBadge, { borderColor: primary.color, backgroundColor: sheetBg, width: size, height: size, borderRadius: size / 2 }]}>
+      <Text style={[styles.stopBadgeText, { color: primary.color, fontSize: 12 * iconScale }]}>{primary.number}</Text>
+    </View>
+  ), size, size);
+
+  return (
+    <Marker
+      coordinate={{ latitude: stop.lat, longitude: stop.lng }}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={isGoogleMaps && !imageUri}
+      zIndex={3}
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={`${stop.label}, bus stop`}
+      accessibilityHint="Shows this stop's schedule"
+      onPress={e => {
+        // Without this, the tap bubbles up to the MapView's own onPress
+        // (closeStop) right after this handler runs - the sheet would open
+        // and get immediately snapped shut in the same gesture.
+        e.stopPropagation();
+        onPress();
+      }}
+      {...(imageUri ? { image: { uri: imageUri } } : {})}
+    >
+      {!imageUri && (
+        <View style={[styles.stopBadge, { borderColor: primary.color, backgroundColor: sheetBg, width: size, height: size, borderRadius: size / 2 }]}>
+          <Text style={[styles.stopBadgeText, { color: primary.color, fontSize: 12 * iconScale }]}>{primary.number}</Text>
+        </View>
+      )}
+    </Marker>
+  );
+}
+
+function BtdArrowMarker({
+  pt,
+  color,
+  isGoogleMaps,
+}: {
+  pt: { coordinate: { lat: number; lng: number }; heading: number };
+  color: string;
+  isGoogleMaps: boolean;
+}) {
+  const size = 16;
+  const imageKey = Platform.OS === 'ios' && isGoogleMaps ? `btd-arrow-${color}-${pt.heading}-${size}` : null;
+  const imageUri = useMarkerImage(imageKey, () => (
+    <View style={[styles.arrowPivot, { transform: [{ rotate: `${pt.heading}deg` }] }]}>
+      <View style={[styles.arrowGlyph, { borderBottomColor: color }]} />
+    </View>
+  ), size, size);
+
+  return (
+    <Marker
+      coordinate={{ latitude: pt.coordinate.lat, longitude: pt.coordinate.lng }}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={isGoogleMaps && !imageUri}
+      tappable={false}
+      zIndex={2}
+      {...(imageUri ? { image: { uri: imageUri } } : {})}
+    >
+      {!imageUri && (
+        <View style={[styles.arrowPivot, { transform: [{ rotate: `${pt.heading}deg` }] }]}>
+          <View style={[styles.arrowGlyph, { borderBottomColor: color }]} />
+        </View>
+      )}
+    </Marker>
   );
 }
 
