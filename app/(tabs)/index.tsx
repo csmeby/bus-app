@@ -2000,6 +2000,19 @@ export default function MapScreen() {
   return (
     <View style={styles.root}>
       <MapView
+        // Apple Maps (MapKit, native class AIRMap) and Google Maps (native
+        // class AIRGoogleMap) are two entirely different native views -
+        // switching `provider` at runtime (Settings > Map, iOS only) only
+        // updates a prop on the SAME already-mounted native instance, it
+        // doesn't swap which native class backs it. Markers/polylines
+        // already queued for the old view then land on the fresh one at
+        // indices that don't exist yet - exactly the crash TestFlight
+        // reported (`insertObject:atIndex:index N beyond bounds for empty
+        // array` in AIRGoogleMap.mm, only on a live in-app switch, never on
+        // a cold start where the right provider is chosen from the start).
+        // Keying on the provider forces React to fully unmount/remount into
+        // the correct native class instead of trying to reuse the old one.
+        key={provider === PROVIDER_GOOGLE ? 'google' : 'default'}
         ref={mapRef}
         provider={provider}
         style={StyleSheet.absoluteFillObject}

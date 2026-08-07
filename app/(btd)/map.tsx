@@ -363,6 +363,12 @@ export default function BtdMapScreen() {
   return (
     <View style={styles.root}>
       <MapView
+        // See app/(tabs)/index.tsx's own comment on this same line - Apple
+        // Maps and Google Maps are different native classes, and switching
+        // `provider` at runtime without remounting crashes
+        // (insertObject:atIndex: beyond bounds) trying to reuse the old
+        // native view's queued mounting instructions on the new one.
+        key={provider === PROVIDER_GOOGLE ? 'google' : 'default'}
         ref={mapRef}
         provider={provider}
         style={StyleSheet.absoluteFillObject}
