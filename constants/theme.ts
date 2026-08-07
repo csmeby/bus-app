@@ -52,36 +52,91 @@ export const HighContrastColors = {
   },
 };
 
-// Colors pulled directly from Colors.dark above (background/surface/
-// surfaceAlt/border/textSecondary) rather than independently-chosen grays -
-// the previous palette (#1a1a2e geometry, #2d2d2d/#373737/#3c3c3c roads) was
-// a plausible-looking dark map on its own, but sat next to this app's actual
-// near-black UI (#0D0D0E/#1C1C1E) it read as a distinctly lighter, grayer,
-// slightly-navy-tinted panel - "why does the map look gray" - rather than
-// part of the same dark theme.
+// Google's own published dark/"Night" palette (the same colors their
+// official style examples and the real Google Maps app dark theme use),
+// not an app-specific near-black palette - an earlier version tried tinting
+// this to match the app's own near-black UI (#0D0D0E/#1C1C1E) more closely,
+// but next to actual Google Maps it just read as "wrong", not "on brand"
+// (screenshot comparison: this app's roads/water/labels were all a
+// noticeably different, slightly-navy hue from stock Google dark mode).
 export const DARK_MAP_STYLE = [
-  { elementType: 'geometry', stylers: [{ color: '#0D0D0E' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8E8E93' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#0D0D0E' }] },
-  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#3A3A3C' }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#ECEDEE' }] },
-  // 'poi' (parent) off hides icons/labels for every poi.* subtype including
-  // poi.park - that's fine for business/attraction clutter, but it was also
-  // silently deleting parks/green space entirely rather than just muting
-  // them, which is why the map read as one flat dark mass with nothing
-  // distinguishing actual land use ("no green for the fields"). The
-  // poi.park override below re-enables just that one subtype with a muted
-  // (not bright/cartoonish) dark green geometry fill, still with its own
-  // icons/labels off.
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ visibility: 'on' }, { color: '#17261A' }] },
-  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#141A15' }] },
-  { featureType: 'road', elementType: 'geometry.fill', stylers: [{ color: '#1C1C1E' }] },
-  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#9BA1A6' }] },
-  { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#2C2C2E' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#3A3A3C' }] },
-  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#ECEDEE' }] },
-  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#000000' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#3A3A3C' }] },
+  { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
+  { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#242f3e' }] },
+  {
+    featureType: 'administrative.locality',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#d59563' }]
+  },
+  {
+    featureType: 'poi',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#d59563' }]
+  },
+  {
+    featureType: 'poi.park',
+    elementType: 'geometry',
+    stylers: [{ color: '#263c3f' }]
+  },
+  {
+    featureType: 'poi.park',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#6b9a76' }]
+  },
+  {
+    featureType: 'road',
+    elementType: 'geometry',
+    stylers: [{ color: '#38414e' }]
+  },
+  {
+    featureType: 'road',
+    elementType: 'geometry.stroke',
+    stylers: [{ color: '#212a37' }]
+  },
+  {
+    featureType: 'road',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#9ca5b3' }]
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'geometry',
+    stylers: [{ color: '#746855' }]
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'geometry.stroke',
+    stylers: [{ color: '#1f2835' }]
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#f3d19c' }]
+  },
+  {
+    featureType: 'transit',
+    elementType: 'geometry',
+    stylers: [{ color: '#2f3948' }]
+  },
+  {
+    featureType: 'transit.station',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#d59563' }]
+  },
+  {
+    featureType: 'water',
+    elementType: 'geometry',
+    stylers: [{ color: '#17263c' }]
+  },
+  {
+    featureType: 'water',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#515c6d' }]
+  },
+  {
+    featureType: 'water',
+    elementType: 'labels.text.stroke',
+    stylers: [{ color: '#17263c' }]
+  }
 ];

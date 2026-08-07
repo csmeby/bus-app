@@ -165,6 +165,16 @@ export default function BtdMapScreen() {
   const [selectedStop, setSelectedStop] = useState<MergedStop | null>(null);
   const stopSheetAnim = useRef(new Animated.Value(0)).current;
   const mapRef = useRef<MapView>(null);
+  // Markers/polylines are gated on this instead of mounting the instant
+  // <MapView> does - see app/(tabs)/index.tsx's own mapReady comment for the
+  // underlying race (mounting instructions landing before the native map's
+  // own shadow tree has finished initializing). That file's buses re-render
+  // every ~10s regardless, so a lost race on the very first paint gets a
+  // free retry a moment later and mostly self-heals unnoticed. BTD's data is
+  // fully static - nothing here ever re-renders on its own after the
+  // initial mount - so a marker that loses this race stays blank forever
+  // instead of quietly recovering on the next poll.
+  const [mapReady, setMapReady] = useState(false);
 
   // Re-derives "next departure" highlights every 30s while a stop sheet is
   // open — the schedule itself is static, only "now" moves.
@@ -376,7 +386,11 @@ export default function BtdMapScreen() {
         customMapStyle={scheme === 'dark' ? DARK_MAP_STYLE : []}
         initialRegion={{ latitude: 30.625, longitude: -96.32, latitudeDelta: 0.16, longitudeDelta: 0.16 }}
         onPress={closeStop}
+        onMapReady={() => setMapReady(true)}
       >
+        {/* Nothing below mounts until the native map view itself is ready -
+            see mapReady above for why. */}
+        {mapReady && <>
         {ALL_BTD_ROUTES.map(routeNum => {
           const route = btdRoutes[routeNum];
           const isActive = activeRouteNums.includes(routeNum);
@@ -444,6 +458,7 @@ export default function BtdMapScreen() {
             </Marker>
           ))
         )}
+        </>}
       </MapView>
 
       {/* ── Floating panel ────────────────────────────────────────────────── */}
