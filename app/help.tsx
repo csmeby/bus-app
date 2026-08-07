@@ -9,21 +9,21 @@ import { useThemeColors } from '@/context/theme-context';
 const STOP_TYPES = [
   {
     key: 'regular',
-    image: require('../assets/images/stop.png'),
+    image: require('../assets/images/stop/stop.png'),
     imageSize: 56,
     title: 'Normal Stop',
     text: "Just a regular stop on the route. The driver will stop if a passenger requests the stop or if someone's waiting to board.",
   },
   {
     key: 'timepoint',
-    image: require('../assets/images/timepoint.png'),
+    image: require('../assets/images/timepoint/timepoint.png'),
     imageSize: 44,
     title: 'Timepoint',
     text: "Similar to a regular stop, but if the driver is running early, they'll hold here until the scheduled leave time.",
   },
   {
     key: 'temp',
-    image: require('../assets/images/temp_stop.png'),
+    image: require('../assets/images/temp_stop/temp_stop.png'),
     imageSize: 44,
     title: 'Temporary Stop',
     text: 'Like a normal stop, but not permanent. Usually for construction or temporary route changes. Sometimes marked with an A-frame sign, but not always.',

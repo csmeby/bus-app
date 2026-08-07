@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -73,19 +74,29 @@ const ALL_ROUTES_BATCH_SIZE = Math.ceil(ALL_ROUTES.length / 2);
 // independent of which rendering approach is used - see BusHeadingMarker's
 // zIndex).
 //
-// 12 buckets (30° apart) x 3 size tiers, not 36 x 5 - deliberately traded
-// rotation smoothness for actually matching Accessibility > Icon Size's
-// bus-icon scale (previously fixed-size regardless of that setting, which
-// read as oversized/"long and pointy" at Small and undersized/hidden at
-// Large) at the SAME total file count as the old 36-bucket single-size set.
-// xs/xl reuse small/large's assets rather than getting their own - a 30°
-// rotation or size-tier mismatch is imperceptible on a marker this small.
-function headingArrowAssetTier(iconSize: IconSizeType): 'small' | 'default' | 'large' {
-  if (iconSize === 'xs') return 'small';
-  if (iconSize === 'xl') return 'large';
+// 12 buckets (30° apart) x 5 size tiers - one tier per Accessibility > Icon
+// Size value, no collapsing. Used to collapse xs->small and xl->large to
+// save on file count, but that meant xl buses (real scale 1.6x) got large's
+// 1.3x-scaled art, reading as visibly undersized - now every tier has its
+// own dedicated, correctly-scaled set.
+function headingArrowAssetTier(iconSize: IconSizeType): IconSizeType {
   return iconSize;
 }
-const HEADING_ARROW_IMAGES: Record<'small' | 'default' | 'large', Record<string, number>> = {
+const HEADING_ARROW_IMAGES: Record<IconSizeType, Record<string, number>> = {
+  xs: {
+    '000': require('../../assets/images/heading/heading_arrow_xs_000.png'),
+    '030': require('../../assets/images/heading/heading_arrow_xs_030.png'),
+    '060': require('../../assets/images/heading/heading_arrow_xs_060.png'),
+    '090': require('../../assets/images/heading/heading_arrow_xs_090.png'),
+    '120': require('../../assets/images/heading/heading_arrow_xs_120.png'),
+    '150': require('../../assets/images/heading/heading_arrow_xs_150.png'),
+    '180': require('../../assets/images/heading/heading_arrow_xs_180.png'),
+    '210': require('../../assets/images/heading/heading_arrow_xs_210.png'),
+    '240': require('../../assets/images/heading/heading_arrow_xs_240.png'),
+    '270': require('../../assets/images/heading/heading_arrow_xs_270.png'),
+    '300': require('../../assets/images/heading/heading_arrow_xs_300.png'),
+    '330': require('../../assets/images/heading/heading_arrow_xs_330.png'),
+  },
   small: {
     '000': require('../../assets/images/heading/heading_arrow_small_000.png'),
     '030': require('../../assets/images/heading/heading_arrow_small_030.png'),
@@ -128,15 +139,35 @@ const HEADING_ARROW_IMAGES: Record<'small' | 'default' | 'large', Record<string,
     '300': require('../../assets/images/heading/heading_arrow_large_300.png'),
     '330': require('../../assets/images/heading/heading_arrow_large_330.png'),
   },
+  xl: {
+    '000': require('../../assets/images/heading/heading_arrow_xl_000.png'),
+    '030': require('../../assets/images/heading/heading_arrow_xl_030.png'),
+    '060': require('../../assets/images/heading/heading_arrow_xl_060.png'),
+    '090': require('../../assets/images/heading/heading_arrow_xl_090.png'),
+    '120': require('../../assets/images/heading/heading_arrow_xl_120.png'),
+    '150': require('../../assets/images/heading/heading_arrow_xl_150.png'),
+    '180': require('../../assets/images/heading/heading_arrow_xl_180.png'),
+    '210': require('../../assets/images/heading/heading_arrow_xl_210.png'),
+    '240': require('../../assets/images/heading/heading_arrow_xl_240.png'),
+    '270': require('../../assets/images/heading/heading_arrow_xl_270.png'),
+    '300': require('../../assets/images/heading/heading_arrow_xl_300.png'),
+    '330': require('../../assets/images/heading/heading_arrow_xl_330.png'),
+  },
 };
-const HEADING_BLANK_IMAGE = require('../../assets/images/heading/heading_blank.png');
+const HEADING_BLANK_IMAGES: Record<IconSizeType, number> = {
+  xs: require('../../assets/images/heading/heading_blank_xs.png'),
+  small: require('../../assets/images/heading/heading_blank_small.png'),
+  default: require('../../assets/images/heading/heading_blank_default.png'),
+  large: require('../../assets/images/heading/heading_blank_large.png'),
+  xl: require('../../assets/images/heading/heading_blank_xl.png'),
+};
 
 function headingArrowImage(heading: number | null | undefined, iconSize: IconSizeType): number {
-  if (typeof heading !== 'number' || isNaN(heading)) return HEADING_BLANK_IMAGE;
+  const tier = headingArrowAssetTier(iconSize);
+  if (typeof heading !== 'number' || isNaN(heading)) return HEADING_BLANK_IMAGES[tier];
   const bucket = (Math.round(heading / 30) * 30) % 360;
   const key = String(bucket < 0 ? bucket + 360 : bucket).padStart(3, '0');
-  const tier = headingArrowAssetTier(iconSize);
-  return HEADING_ARROW_IMAGES[tier][key] ?? HEADING_BLANK_IMAGE;
+  return HEADING_ARROW_IMAGES[tier][key] ?? HEADING_BLANK_IMAGES[tier];
 }
 
 // Same problem, same fix as the heading arrows above, applied to the plain
@@ -151,26 +182,53 @@ function headingArrowImage(heading: number | null | undefined, iconSize: IconSiz
 // path below (and pays for its residual Fabric race, same as before).
 const STOP_MARKER_IMAGES: Record<'small' | 'default' | 'large', Record<'stop' | 'temp_stop' | 'timepoint', number>> = {
   small: {
-    stop: require('../../assets/images/stop_marker_stop_small.png'),
-    temp_stop: require('../../assets/images/stop_marker_temp_stop_small.png'),
-    timepoint: require('../../assets/images/stop_marker_timepoint_small.png'),
+    stop: require('../../assets/images/stop/stop_small.png'),
+    temp_stop: require('../../assets/images/temp_stop/temp_stop_small.png'),
+    timepoint: require('../../assets/images/timepoint/timepoint_small.png'),
   },
   default: {
-    stop: require('../../assets/images/stop_marker_stop_default.png'),
-    temp_stop: require('../../assets/images/stop_marker_temp_stop_default.png'),
-    timepoint: require('../../assets/images/stop_marker_timepoint_default.png'),
+    stop: require('../../assets/images/stop/stop_default.png'),
+    temp_stop: require('../../assets/images/temp_stop/temp_stop_default.png'),
+    timepoint: require('../../assets/images/timepoint/timepoint_default.png'),
   },
   large: {
-    stop: require('../../assets/images/stop_marker_stop_large.png'),
-    temp_stop: require('../../assets/images/stop_marker_temp_stop_large.png'),
-    timepoint: require('../../assets/images/stop_marker_timepoint_large.png'),
+    stop: require('../../assets/images/stop/stop_large.png'),
+    temp_stop: require('../../assets/images/temp_stop/temp_stop_large.png'),
+    timepoint: require('../../assets/images/timepoint/timepoint_large.png'),
   },
 };
 
+// Kept as its own 3-tier collapse (xs->small, xl->large) - only the heading
+// arrows were reported as visibly undersized at Large/XL, so stop icons
+// don't need the same per-tier asset expansion.
+function stopMarkerAssetTier(iconSize: IconSizeType): 'small' | 'default' | 'large' {
+  if (iconSize === 'xs') return 'small';
+  if (iconSize === 'xl') return 'large';
+  return iconSize;
+}
+
 function stopMarkerImage(variant: 'stop' | 'temp_stop' | 'timepoint', iconSize: IconSizeType): number {
-  const tier = headingArrowAssetTier(iconSize);
+  const tier = stopMarkerAssetTier(iconSize);
   return STOP_MARKER_IMAGES[tier][variant];
 }
+
+// Google-Maps-only preset: the bus circle's black ring + bus.png glyph,
+// baked into one image (transparent center) rendered via the native `image`
+// prop - same churn-free technique as the stop markers and heading arrows
+// above. Only these two pieces, not the whole bus marker: the circle FILL
+// is per-route color, set at runtime from live API data, so it can't be
+// pre-rendered - it stays a plain composed-view Marker sharing the same
+// coordinate, immediately underneath this one. Apple Maps keeps the single
+// composed-view marker (fill + ring + glyph together, see the non-Google
+// branch in BusMarker below) - it was never affected by this bug in the
+// first place.
+const BUS_MARKER_RING_IMAGES: Record<IconSizeType, number> = {
+  xs: require('../../assets/images/bus_marker/bus_marker_xs.png'),
+  small: require('../../assets/images/bus_marker/bus_marker_small.png'),
+  default: require('../../assets/images/bus_marker/bus_marker_default.png'),
+  large: require('../../assets/images/bus_marker/bus_marker_large.png'),
+  xl: require('../../assets/images/bus_marker/bus_marker_xl.png'),
+};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -479,7 +537,14 @@ export default function MapScreen() {
   // paint races the snapshot. Apple Maps' renderer doesn't have this bug -
   // its tracksViewChanges toggling genuinely works, so this only forces the
   // always-true workaround on the renderer that actually needs it.
-  const isGoogleMaps = provider === PROVIDER_GOOGLE;
+  // NOT just `provider === PROVIDER_GOOGLE` - `provider` only becomes
+  // PROVIDER_GOOGLE on iOS (see above), so that check alone is always false
+  // on Android and was silently routing Android through every branch in
+  // this file meant for Apple Maps' renderer instead (the two-marker bus
+  // composite, the pre-rendered ring image, every Android-specific
+  // workaround below) even though Android's native map has always genuinely
+  // been Google Maps under PROVIDER_DEFAULT the whole time.
+  const isGoogleMaps = Platform.OS === 'android' || provider === PROVIDER_GOOGLE;
   const insets = useSafeAreaInsets();
   const { isFavorite } = useFavorites();
   const { enabled: unitCodesEnabled } = useUnitCodes();
@@ -581,6 +646,14 @@ export default function MapScreen() {
       iconSizeMountedRef.current = true;
       return;
     }
+    // Also cancel any in-flight staggered reopen and drop whatever it was
+    // about to restore (see rampSelectedRoutesTo/savedRoutesForReopenRef
+    // further down) - otherwise a reopen already queued up from this same
+    // tab losing focus (e.g. navigating to Settings to change this) fires a
+    // moment later and undoes this close, which is exactly the bug this
+    // effect exists to avoid.
+    cancelGradualSelectAll();
+    savedRoutesForReopenRef.current = null;
     setSelectedRoutes(new Set());
   }, [currentIconSize]);
 
@@ -663,6 +736,19 @@ export default function MapScreen() {
   // instruction batch sized for a tree that doesn't exist yet) and its
   // "random" flakiness (a timing race, not a deterministic bug) exactly.
   const [mapReady, setMapReady] = useState(false);
+
+  // Bus icons not painting on first load, and polylines going fully blank
+  // after leaving this tab and coming back (both Google Maps only): neither
+  // a full <MapView> remount nor a delayed unmount/remount pulse of the
+  // whole overlay block fixed it on-device (both tried and ruled out). The
+  // actual fix - closing routes on blur and staggering them back open on
+  // focus - lives further down (see rampSelectedRoutesTo and the
+  // useFocusEffect right after it), since it needs selectedRoutes' own
+  // toggling machinery. currentSelectedRoutesRef just mirrors selectedRoutes
+  // into a ref so that effect can read the latest value from its cleanup
+  // function without retriggering itself on every selection change.
+  const currentSelectedRoutesRef = useRef(selectedRoutes);
+  currentSelectedRoutesRef.current = selectedRoutes;
 
   // Which routes' Polylines are actually allowed to mount into AIRMap once
   // mapReady flips true. Separate from routeLines/routeLinesRef's own
@@ -1000,16 +1086,66 @@ export default function MapScreen() {
 
   useEffect(() => cancelGradualSelectAll, [cancelGradualSelectAll]);
 
-  const selectAllRoutesGradually = useCallback(() => {
+  // Generalized version of the ramp described above - selects `targetRoutes`
+  // a batch at a time instead of jumping straight there in one commit. Used
+  // both for "ALL Routes" (below) and for restoring whatever was open before
+  // this tab lost focus (see the Google-Maps-only close-on-blur/reopen-on-
+  // focus effect further down) - same giant-commit crash risk either way,
+  // so it gets the same staggering.
+  const rampSelectedRoutesTo = useCallback((targetRoutes: string[]) => {
     cancelGradualSelectAll();
     let cursor = 0;
     const step = () => {
       cursor += ALL_ROUTES_BATCH_SIZE;
-      setSelectedRoutes(new Set(ALL_ROUTES.slice(0, cursor)));
-      selectAllTimerRef.current = cursor < ALL_ROUTES.length ? setTimeout(step, MAP_MOUNT_BATCH_DELAY_MS) : null;
+      setSelectedRoutes(new Set(targetRoutes.slice(0, cursor)));
+      selectAllTimerRef.current = cursor < targetRoutes.length ? setTimeout(step, MAP_MOUNT_BATCH_DELAY_MS) : null;
     };
     step();
   }, [cancelGradualSelectAll]);
+
+  const selectAllRoutesGradually = useCallback(() => {
+    rampSelectedRoutesTo(ALL_ROUTES);
+  }, [rampSelectedRoutesTo]);
+
+  // Bus icons not painting on first load, and polylines going fully blank
+  // after leaving this tab and coming back (both Google Maps only): neither
+  // a full <MapView> remount nor a delayed unmount/remount pulse of the
+  // whole overlay block fixed it on-device. What's already proven to work
+  // for a near-identical Google-only symptom (polylines visually stuck on
+  // their previous strokeColor/strokeWidth after Accessibility > Icon Size
+  // changes every marker/polyline's props at once, see currentIconSize's own
+  // effect above) is closing every open route outright rather than trying
+  // to nudge a redraw. This applies that same close on every blur - instant,
+  // not staggered, matching the icon-size fix and rampSelectedRoutesTo's own
+  // comment that mass REMOVALS were never the crash risk, only mass inserts.
+  // Reopening on focus regain can't just restore the saved set in one shot
+  // though - that's exactly the same "every route's polylines get a
+  // simultaneous prop update" shape as the icon-size bug, just triggered by
+  // a blur/focus cycle instead of a settings change - so it goes back
+  // through rampSelectedRoutesTo instead, the same batched ramp "ALL Routes"
+  // already relies on to avoid it.
+  const savedRoutesForReopenRef = useRef<Set<string> | null>(null);
+  const hasFocusedMapOnceRef = useRef(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isGoogleMaps && hasFocusedMapOnceRef.current && savedRoutesForReopenRef.current) {
+        const toReopen = savedRoutesForReopenRef.current;
+        savedRoutesForReopenRef.current = null;
+        if (toReopen.size > 0) {
+          rampSelectedRoutesTo(ALL_ROUTES.filter(r => toReopen.has(r)));
+        }
+      }
+      hasFocusedMapOnceRef.current = true;
+      return () => {
+        if (isGoogleMaps) {
+          cancelGradualSelectAll();
+          savedRoutesForReopenRef.current = currentSelectedRoutesRef.current;
+          setSelectedRoutes(new Set());
+        }
+      };
+    }, [isGoogleMaps, rampSelectedRoutesTo, cancelGradualSelectAll])
+  );
 
   // Active times list: real-time when stopDate is null, schedule otherwise
   const visibleStopTimes = useMemo(() => {
@@ -1884,28 +2020,35 @@ export default function MapScreen() {
         {/* Nothing below mounts until the native map view itself is ready -
             see mapReady above for why. */}
         {mapReady && <>
-        {/* Always render ALL polylines, for every route whether selected or
-            not; use a transparent/zero-width line for anything hidden to
-            prevent the native layer from retaining ghost polylines (see the
-            file-level notes on why nothing here ever conditionally
-            unmounts). Selected + the route's primary direction (or a
-            circulator/stale route, which have no reliable direction split)
-            draws at full strength; the other direction draws thinner and
-            dimmed so it still reads as part of the route without competing
-            with the primary line. Which direction counts as primary is the
-            rider's own per-route pick - see getPrimaryDir/routePrimaryDir. */}
-        {Object.entries(routeLines).filter(([route]) => revealedRoutes.has(route)).flatMap(([route, dirs]) => {
+        {/* Conditionally mounted - only a selected route's Polylines exist in
+            the tree at all, matching how BusMarker is already filtered by
+            selectedRoutes. Used to be always-mounted with a transparent/
+            zero-width line for anything hidden instead, specifically to
+            avoid a real native crash from mass simultaneous mount/unmount
+            (insertReactSubview: too many children in one commit) - but that
+            prop-only toggle turned out to just not reliably repaint on
+            Android (routes reopening after a tab switch would stay
+            invisible despite strokeColor going back to a real color).
+            Switched back to real mounting now that every bulk selection
+            change (rampSelectedRoutesTo/selectAllRoutesGradually) is already
+            staggered into small batches for exactly this reason - the same
+            batching that made BusMarker's real mount/unmount safe. Selected
+            + the route's primary direction (or a circulator/stale route,
+            which have no reliable direction split) draws at full strength;
+            the other direction draws thinner and dimmed so it still reads as
+            part of the route without competing with the primary line. Which
+            direction counts as primary is the rider's own per-route pick -
+            see getPrimaryDir/routePrimaryDir. */}
+        {Object.entries(routeLines).filter(([route]) => revealedRoutes.has(route) && selectedRoutes.has(route)).flatMap(([route, dirs]) => {
           const color = routeColors[route] ?? '#888888';
           const stale = !!staleRouteMap[route];
-          const selected = selectedRoutes.has(route);
           const primary = getPrimaryDir(route);
 
           return Object.entries(dirs).map(([dirKey, path]) => {
             const kind = routeDirKinds[route]?.[dirKey] ?? 'circulator';
             const isSecondary = !stale && kind !== 'circulator' && dirKey !== primary;
-            const strokeColor = !selected ? 'rgba(0,0,0,0)' : isSecondary ? dimColor(color) : color;
-            const strokeWidth = !selected ? 0 : isSecondary ? 3 : 5;
-            // Every polyline stays mounted at all times with a STABLE key
+            const strokeColor = isSecondary ? dimColor(color) : color;
+            const strokeWidth = isSecondary ? 3 : 5;
             return (
               <Polyline
                 key={`line-${route}-${dirKey}`}
@@ -2713,13 +2856,76 @@ function BusMarker({
   const { iconSize } = useAccessibility();
   const scale = ICON_SCALE[iconSize];
 
+  // Separate from `ready` above (which is driven by the composed-view's own
+  // onLayout, Apple-Maps-branch only) - the ring/icon image marker below has
+  // no child view to hook a layout event off of, so it settles the same way
+  // BusHeadingMarker's image-prop marker does: a double rAF after mount.
+  const [imageReady, setImageReady] = useState(false);
+  useEffect(() => {
+    if (!isGoogleMaps) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setImageReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [isGoogleMaps]);
+
+  if (isGoogleMaps) {
+    // Two markers sharing one coordinate, same pairing pattern as
+    // GlidingBus/BusHeadingMarker below - a plain color-fill Marker (no
+    // image, nothing to decode, always painted the instant it lays out)
+    // underneath a native image-prop Marker carrying the ring + glyph (see
+    // BUS_MARKER_RING_IMAGES above for why only those two are pre-rendered).
+    return (
+      <>
+        <Marker
+          coordinate={{ latitude: bus.lat, longitude: bus.lon }}
+          anchor={{ x: 0.5, y: 0.5 }}
+          opacity={opacity}
+          tappable={tappable}
+          tracksViewChanges={true}
+          zIndex={10}
+          onPress={onPress}
+        >
+          {/* Same fixed-size invisible tap-target wrapper approach as
+              StopMarker's closedStopWrap - the visible fill circle (20pt) is
+              much smaller than the old single-marker's full tap target
+              (60pt), so without this wrapper the hit region would shrink
+              along with it. */}
+          <View
+            style={[styles.busMarkerWrap, { width: 60 * scale, height: 60 * scale }]}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel={`Bus ${busDisplayName(bus.name)}, route ${bus.route}${bus.direction ? `, ${bus.direction}` : ''}`}
+            accessibilityHint="Shows this bus's details"
+          >
+            <View style={[styles.busCircleFill, { backgroundColor: fillColor, width: 20 * scale, height: 20 * scale, borderRadius: 10 * scale }]} />
+          </View>
+        </Marker>
+        <Marker
+          coordinate={{ latitude: bus.lat, longitude: bus.lon }}
+          anchor={{ x: 0.5, y: 0.5 }}
+          icon={BUS_MARKER_RING_IMAGES[iconSize]}
+          image={BUS_MARKER_RING_IMAGES[iconSize]}
+          opacity={opacity}
+          tappable={false}
+          tracksViewChanges={isGoogleMaps ? true : !imageReady}
+          zIndex={11}
+        />
+      </>
+    );
+  }
+
   return (
     <Marker
       coordinate={{ latitude: bus.lat, longitude: bus.lon }}
       anchor={{ x: 0.5, y: 0.5 }}
       opacity={opacity}
       tappable={tappable}
-      tracksViewChanges={isGoogleMaps ? true : !ready}
+      tracksViewChanges={!ready}
       zIndex={10}
       onPress={onPress}
     >
@@ -2734,7 +2940,7 @@ function BusMarker({
         <View style={[styles.busCircleFill, { backgroundColor: fillColor, width: 20 * scale, height: 20 * scale, borderRadius: 10 * scale }]} />
         <View style={[styles.busCircleBorder, { width: 23 * scale, height: 23 * scale, borderRadius: 11.5 * scale }]} />
         <Image
-          source={require('../../assets/images/bus.png')}
+          source={require('../../assets/images/bus_marker/bus.png')}
           // See StopMarker's onLoadEnd comment - same decode-race fix,
           // cheap insurance here even though buses' own position polling
           // already forces frequent re-renders that tend to self-heal this.
@@ -2783,7 +2989,10 @@ function BusHeadingMarker({ bus, opacity, isGoogleMaps }: { bus: any; opacity: n
       // Accessibility > Icon Size (Large/Extra Large grow well past the
       // old size), the bigger bus circle increasingly covered this arrow
       // entirely ("buried"). Now drawn above the bus instead of below it.
-      zIndex={11}
+      // Bumped from 11 to 12 once the Google Maps branch of BusMarker split
+      // into two stacked markers (fill=10, ring/icon=11) - stays clear of
+      // both.
+      zIndex={12}
     />
   );
 }
@@ -3004,10 +3213,10 @@ function StopMarker({
       >
         <Image
           source={stop.isTemporary
-            ? require('../../assets/images/temp_stop.png')
+            ? require('../../assets/images/temp_stop/temp_stop.png')
             : isTimepoint
-            ? require('../../assets/images/timepoint.png')
-            : require('../../assets/images/stop.png')}
+            ? require('../../assets/images/timepoint/timepoint.png')
+            : require('../../assets/images/stop/stop.png')}
           // onLoadEnd fires once the bitmap has actually decoded - the
           // ONLY reliable "safe to snapshot now" signal on Google Maps
           // (see the isGoogleMaps note above). onLayout fires as soon as

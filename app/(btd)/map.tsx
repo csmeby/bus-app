@@ -154,7 +154,10 @@ export default function BtdMapScreen() {
   // re-snapshot its custom child view if the initial mount-time snapshot
   // races the view's own layout, silently leaving no icon at all. See
   // app/(tabs)/index.tsx's StopMarker for the full writeup.
-  const isGoogleMaps = provider === PROVIDER_GOOGLE;
+  // NOT just `provider === PROVIDER_GOOGLE` - see app/(tabs)/index.tsx's own
+  // comment on this exact line: that check alone is always false on
+  // Android, since `provider` only becomes PROVIDER_GOOGLE on iOS above.
+  const isGoogleMaps = Platform.OS === 'android' || provider === PROVIDER_GOOGLE;
   const insets = useSafeAreaInsets();
 
   const [selectedRoutes, setSelectedRoutes] = useState<string[]>([]); // Start with no routes selected
