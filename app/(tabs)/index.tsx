@@ -215,21 +215,32 @@ function stopMarkerImage(variant: 'stop' | 'temp_stop' | 'timepoint', iconSize: 
 }
 
 // Google-Maps-only preset: the bus circle's black ring + bus.png glyph,
-// baked into one image (transparent center) rendered via the native `image`
-// prop - same churn-free technique as the stop markers and heading arrows
-// above. Only these two pieces, not the whole bus marker: the circle FILL
-// is per-route color, set at runtime from live API data, so it can't be
-// pre-rendered - it stays a plain composed-view Marker sharing the same
-// coordinate, immediately underneath this one. Apple Maps keeps the single
-// composed-view marker (fill + ring + glyph together, see the non-Google
-// branch in BusMarker below) - it was never affected by this bug in the
-// first place.
+// baked into one image (transparent center). Composited together with the
+// per-route color fill (live API data, can't be pre-rendered) into ONE
+// marker instead of two stacked ones - see BusMarker's isGoogleMaps branch
+// for why: a separate tappable={false} marker sitting on top of the
+// tappable fill marker turned out to still intermittently swallow taps on
+// both Android and iOS+Google (bus icons "hard to tap, takes a few tries"/
+// "impossible to tap" respectively) - a single fully-tappable marker has no
+// such ambiguity. Apple Maps keeps its own single composed-view marker
+// (fill + ring + glyph together, see the non-Google branch in BusMarker
+// below) - it was never affected by either bug.
 const BUS_MARKER_RING_IMAGES: Record<IconSizeType, number> = {
   xs: require('../../assets/images/bus_marker/bus_marker_xs.png'),
   small: require('../../assets/images/bus_marker/bus_marker_small.png'),
   default: require('../../assets/images/bus_marker/bus_marker_default.png'),
   large: require('../../assets/images/bus_marker/bus_marker_large.png'),
   xl: require('../../assets/images/bus_marker/bus_marker_xl.png'),
+};
+// The ring images' own @1x pixel dimensions (square) - rendering them at
+// these exact point sizes inside the composed <View> below reproduces
+// exactly how big they used to appear as their own independent marker.
+const BUS_MARKER_RING_SIZE: Record<IconSizeType, number> = {
+  xs: 20,
+  small: 24,
+  default: 27,
+  large: 34,
+  xl: 41,
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -2871,92 +2882,62 @@ function BusMarker({
   const [, setImgLoadTick] = useState(0);
   const { iconSize } = useAccessibility();
   const scale = ICON_SCALE[iconSize];
-  const wrapSize = 60 * scale;
+  // Bumped from 60 (a bit tight even on Apple Maps' single-marker branch,
+  // "hard to tap, takes a few tries") - the visible circle/ring art stays
+  // the same size, only the invisible tap-target wrapper grows.
+  const wrapSize = 76 * scale;
   const circleSize = 20 * scale;
 
-  // Separate from `ready` above (which is driven by the composed-view's own
-  // onLayout, Apple-Maps-branch only) - the ring/icon image marker below has
-  // no child view to hook a layout event off of, so it settles the same way
-  // BusHeadingMarker's image-prop marker does: a double rAF after mount.
-  const [imageReady, setImageReady] = useState(false);
-  useEffect(() => {
-    if (!isGoogleMaps) return;
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => setImageReady(true));
-    });
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-    };
-  }, [isGoogleMaps]);
+  const ringSize = BUS_MARKER_RING_SIZE[iconSize];
+  // Composed content shared by both the always-live Android marker below AND
+  // the iOS+Google captured-image fallback while its bitmap is generating -
+  // fill circle first, ring/glyph image on top, both centered in the same
+  // invisible tap-target wrapper, sized well past the visible art (see
+  // StopMarker's closedStopWrap for why the wrapper needs to be bigger).
+  const composedContent = (
+    <View style={[styles.busMarkerWrap, { width: wrapSize, height: wrapSize }]}>
+      <View style={[styles.busCircleFill, { backgroundColor: fillColor, width: circleSize, height: circleSize, borderRadius: circleSize / 2 }]} />
+      <Image source={BUS_MARKER_RING_IMAGES[iconSize]} style={{ position: 'absolute', width: ringSize, height: ringSize }} />
+    </View>
+  );
 
   // iOS's Google Maps SDK never successfully snapshots a composed-View
   // Marker at all - unlike Android's Google Maps, which just gets stuck on
   // a stale frame (tracksViewChanges=true forever fixes that one), iOS's
-  // Google renderer simply never paints the fill circle below in the first
-  // place. Route colors come from a live API, so they can't be pre-baked
-  // into a static asset the way the ring/glyph image is - this captures the
-  // exact same composed content into a real bitmap ONCE per distinct color
-  // (see lib/marker-image-factory) and swaps to the native `image` prop,
-  // which needs no snapshot pass. Android keeps the composed-view approach
-  // below unchanged since it already works there.
+  // Google renderer simply never paints it in the first place. Route colors
+  // come from a live API, so they can't be pre-baked into a static asset
+  // the way the ring/glyph alone is - this captures the exact composed
+  // content (fill + ring together) into a real bitmap ONCE per distinct
+  // color (see lib/marker-image-factory) and swaps to the native `image`
+  // prop, which needs no snapshot pass. Android keeps the composed-view
+  // approach below unchanged since it already works there.
   const circleImageKey = Platform.OS === 'ios' && isGoogleMaps ? `bus-circle-${fillColor}-${wrapSize}` : null;
-  const circleImageUri = useMarkerImage(circleImageKey, () => (
-    <View style={[styles.busMarkerWrap, { width: wrapSize, height: wrapSize }]}>
-      <View style={[styles.busCircleFill, { backgroundColor: fillColor, width: circleSize, height: circleSize, borderRadius: circleSize / 2 }]} />
-    </View>
-  ), wrapSize, wrapSize);
+  const circleImageUri = useMarkerImage(circleImageKey, () => composedContent, wrapSize, wrapSize);
 
   if (isGoogleMaps) {
-    // Two markers sharing one coordinate, same pairing pattern as
-    // GlidingBus/BusHeadingMarker below - a plain color-fill Marker (no
-    // image, nothing to decode, always painted the instant it lays out)
-    // underneath a native image-prop Marker carrying the ring + glyph (see
-    // BUS_MARKER_RING_IMAGES above for why only those two are pre-rendered).
+    // ONE marker carrying both the fill circle and the ring/glyph, not two
+    // stacked ones - a separate tappable={false} marker sitting on top of
+    // the tappable fill marker turned out to still intermittently swallow
+    // taps on both Android ("hard to tap, takes a few tries") and iOS+
+    // Google (taps not registering at all), so there's no longer a second
+    // marker that could ever intercept anything.
     return (
-      <>
-        <Marker
-          coordinate={{ latitude: bus.lat, longitude: bus.lon }}
-          anchor={{ x: 0.5, y: 0.5 }}
-          opacity={opacity}
-          tappable={tappable}
-          tracksViewChanges={!circleImageUri}
-          zIndex={10}
-          onPress={onPress}
-          accessible
-          accessibilityRole="button"
-          accessibilityLabel={`Bus ${busDisplayName(bus.name)}, route ${bus.route}${bus.direction ? `, ${bus.direction}` : ''}`}
-          accessibilityHint="Shows this bus's details"
-          {...(circleImageUri ? { image: { uri: circleImageUri } } : {})}
-        >
-          {/* Same fixed-size invisible tap-target wrapper approach as
-              StopMarker's closedStopWrap - the visible fill circle (20pt) is
-              much smaller than the old single-marker's full tap target
-              (60pt), so without this wrapper the hit region would shrink
-              along with it. Only rendered on iOS until circleImageUri is
-              ready (a captured image and this composed fallback can't both
-              meaningfully apply at once) - Android always takes this path,
-              same as before. */}
-          {!circleImageUri && (
-            <View
-              style={[styles.busMarkerWrap, { width: wrapSize, height: wrapSize }]}
-            >
-              <View style={[styles.busCircleFill, { backgroundColor: fillColor, width: circleSize, height: circleSize, borderRadius: circleSize / 2 }]} />
-            </View>
-          )}
-        </Marker>
-        <Marker
-          coordinate={{ latitude: bus.lat, longitude: bus.lon }}
-          anchor={{ x: 0.5, y: 0.5 }}
-          icon={BUS_MARKER_RING_IMAGES[iconSize]}
-          image={BUS_MARKER_RING_IMAGES[iconSize]}
-          opacity={opacity}
-          tappable={false}
-          tracksViewChanges={isGoogleMaps ? true : !imageReady}
-          zIndex={11}
-        />
-      </>
+      <Marker
+        coordinate={{ latitude: bus.lat, longitude: bus.lon }}
+        anchor={{ x: 0.5, y: 0.5 }}
+        opacity={opacity}
+        tappable={tappable}
+        tracksViewChanges={Platform.OS === 'ios' ? !circleImageUri : true}
+        zIndex={10}
+        onPress={onPress}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={`Bus ${busDisplayName(bus.name)}, route ${bus.route}${bus.direction ? `, ${bus.direction}` : ''}`}
+        accessibilityHint="Shows this bus's details"
+        {...(circleImageUri ? { image: { uri: circleImageUri } } : {})}
+      >
+        {!circleImageUri && composedContent}
+      </Marker>
     );
   }
 
@@ -2971,7 +2952,7 @@ function BusMarker({
       onPress={onPress}
     >
       <View
-        style={[styles.busMarkerWrap, { width: 60 * scale, height: 60 * scale }]}
+        style={[styles.busMarkerWrap, { width: wrapSize, height: wrapSize }]}
         onLayout={() => requestAnimationFrame(() => setReady(true))}
         accessible
         accessibilityRole="button"
