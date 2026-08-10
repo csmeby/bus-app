@@ -1,4 +1,5 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -45,6 +46,12 @@ type BtdRoute = {
 
 const btdRoutes = btdRoutesRaw as Record<string, BtdRoute>;
 const ALL_BTD_ROUTES = Object.keys(btdRoutes).sort();
+
+// See the useFocusEffect below (close-on-blur/ramp-reopen-on-focus) for why
+// this exists - same batch pace app/(tabs)/index.tsx's MAP_MOUNT_BATCH_DELAY_MS
+// uses for the identical Google-Maps-only bug.
+const ROUTE_REOPEN_BATCH_DELAY_MS = 50;
+const ROUTE_REOPEN_BATCH_SIZE = Math.ceil(ALL_BTD_ROUTES.length / 2);
 
 type MergedStop = {
   key: string;
@@ -223,6 +230,71 @@ export default function BtdMapScreen() {
 
   // Determine which routes are active for display
   const activeRouteNums = allSelected ? ALL_BTD_ROUTES : selectedRoutes;
+
+  // Polylines going fully blank after leaving this tab and coming back
+  // (Google Maps only) - the exact same bug already root-caused on
+  // AggieSpirit's own map screen (app/(tabs)/index.tsx's near-identical
+  // useFocusEffect): every active route's polyline getting a simultaneous
+  // strokeColor/strokeWidth prop update in one commit (which is exactly
+  // what a blur→focus cycle restoring `selectedRoutes` in one shot would
+  // do) leaves them visually stuck. Closing every route outright on blur
+  // and reopening in small batches on refocus - instead of restoring the
+  // saved set in one shot - was the only thing that actually fixed it
+  // on-device there, so this applies the same fix here.
+  const currentSelectedRoutesRef = useRef(selectedRoutes);
+  currentSelectedRoutesRef.current = selectedRoutes;
+  const savedRoutesForReopenRef = useRef<string[] | null>(null);
+  const hasFocusedMapOnceRef = useRef(false);
+  const reopenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelGradualReopen = useCallback(() => {
+    if (reopenTimerRef.current != null) {
+      clearTimeout(reopenTimerRef.current);
+      reopenTimerRef.current = null;
+    }
+  }, []);
+  useEffect(() => cancelGradualReopen, [cancelGradualReopen]);
+
+  const rampSelectedRoutesTo = useCallback((targetRoutes: string[]) => {
+    cancelGradualReopen();
+    let cursor = 0;
+    // The FIRST batch has to be deferred too, not just the ones after it -
+    // BTD only ever has up to 9 routes (batch size 5), so a selection of
+    // 5 or fewer fits entirely in one batch and this loop would otherwise
+    // never touch setTimeout at all, applying synchronously in the very
+    // same tick as the blur's clear. Confirmed on-device: that synchronous
+    // round-trip does NOT redraw the stuck polyline, but a genuinely
+    // separate later frame does (manually toggling the checkbox - two real
+    // renders apart - fixes it every time). Every step, including the
+    // first, goes through setTimeout so there's always at least one real
+    // frame between "cleared" and "restored".
+    const step = () => {
+      cursor += ROUTE_REOPEN_BATCH_SIZE;
+      setSelectedRoutes(targetRoutes.slice(0, cursor));
+      reopenTimerRef.current = cursor < targetRoutes.length ? setTimeout(step, ROUTE_REOPEN_BATCH_DELAY_MS) : null;
+    };
+    reopenTimerRef.current = setTimeout(step, ROUTE_REOPEN_BATCH_DELAY_MS);
+  }, [cancelGradualReopen]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isGoogleMaps && hasFocusedMapOnceRef.current && savedRoutesForReopenRef.current) {
+        const toReopen = savedRoutesForReopenRef.current;
+        savedRoutesForReopenRef.current = null;
+        if (toReopen.length > 0) {
+          rampSelectedRoutesTo(toReopen);
+        }
+      }
+      hasFocusedMapOnceRef.current = true;
+      return () => {
+        if (isGoogleMaps) {
+          cancelGradualReopen();
+          savedRoutesForReopenRef.current = currentSelectedRoutesRef.current;
+          setSelectedRoutes([]);
+        }
+      };
+    }, [isGoogleMaps, rampSelectedRoutesTo, cancelGradualReopen])
+  );
 
   const sheetBg = scheme === 'dark' ? '#1C1C1E' : '#FFFFFF';
   const panelBg = scheme === 'dark' ? 'rgba(18,18,20,0.97)' : 'rgba(255,255,255,0.97)';

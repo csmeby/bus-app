@@ -1108,12 +1108,23 @@ export default function MapScreen() {
   const rampSelectedRoutesTo = useCallback((targetRoutes: string[]) => {
     cancelGradualSelectAll();
     let cursor = 0;
+    // The FIRST batch has to be deferred too, not just the ones after it -
+    // a reopen of ALL_ROUTES_BATCH_SIZE routes or fewer (e.g. the rider
+    // only had 1-2 routes open before blurring) would otherwise fit
+    // entirely in one synchronous batch and never touch setTimeout at all,
+    // applying in the very same tick as the blur's clear. Confirmed on
+    // BTD's near-identical map screen: that synchronous round-trip does
+    // NOT redraw a stuck polyline, but a genuinely separate later frame
+    // does - see (btd)/map.tsx's own rampSelectedRoutesTo for the on-device
+    // repro. Every step, including the first, goes through setTimeout so
+    // there's always at least one real frame between "cleared" and
+    // "restored".
     const step = () => {
       cursor += ALL_ROUTES_BATCH_SIZE;
       setSelectedRoutes(new Set(targetRoutes.slice(0, cursor)));
       selectAllTimerRef.current = cursor < targetRoutes.length ? setTimeout(step, MAP_MOUNT_BATCH_DELAY_MS) : null;
     };
-    step();
+    selectAllTimerRef.current = setTimeout(step, MAP_MOUNT_BATCH_DELAY_MS);
   }, [cancelGradualSelectAll]);
 
   const selectAllRoutesGradually = useCallback(() => {
@@ -2895,7 +2906,7 @@ function BusMarker({
   // invisible tap-target wrapper, sized well past the visible art (see
   // StopMarker's closedStopWrap for why the wrapper needs to be bigger).
   const composedContent = (
-    <View style={[styles.busMarkerWrap, { width: wrapSize, height: wrapSize }]}>
+    <View style={[styles.busMarkerWrap, { width: wrapSize, height: wrapSize, backgroundColor: 'rgba(0,0,0,0.02)' }]}>
       <View style={[styles.busCircleFill, { backgroundColor: fillColor, width: circleSize, height: circleSize, borderRadius: circleSize / 2 }]} />
       <Image source={BUS_MARKER_RING_IMAGES[iconSize]} style={{ position: 'absolute', width: ringSize, height: ringSize }} />
     </View>
@@ -2929,7 +2940,12 @@ function BusMarker({
         tappable={tappable}
         tracksViewChanges={Platform.OS === 'ios' ? !circleImageUri : true}
         zIndex={10}
-        onPress={onPress}
+        // stopPropagation suppresses Android Google Maps' own default
+        // marker-select behavior (the native info-window toolbar with
+        // "Directions"/"Open in Maps" buttons in the bottom right) - without
+        // it, the first tap only triggers that native selection UI and our
+        // custom callout doesn't open until a second tap.
+        onPress={e => { e.stopPropagation(); onPress(); }}
         accessible
         accessibilityRole="button"
         accessibilityLabel={`Bus ${busDisplayName(bus.name)}, route ${bus.route}${bus.direction ? `, ${bus.direction}` : ''}`}
@@ -2983,7 +2999,7 @@ function BusMarker({
 // before the first snapshot locks in. A composed-view (rotated base image)
 // rewrite was tried twice and reverted both times - see git history and
 // HEADING_ARROW_IMAGES' own comment.
-function BusHeadingMarker({ bus, opacity, isGoogleMaps }: { bus: any; opacity: number; isGoogleMaps: boolean }) {
+function BusHeadingMarker({ bus, opacity, isGoogleMaps, onPress }: { bus: any; opacity: number; isGoogleMaps: boolean; onPress: () => void }) {
   const [ready, setReady] = useState(false);
   const { iconSize } = useAccessibility();
 
@@ -3005,7 +3021,18 @@ function BusHeadingMarker({ bus, opacity, isGoogleMaps }: { bus: any; opacity: n
       image={headingArrowImage(bus.heading, iconSize)}
       opacity={opacity}
       tracksViewChanges={isGoogleMaps ? true : !ready}
+      // `tappable` isn't actually wired up for Marker in react-native-maps'
+      // Android native code (only Circle/Polygon/Polyline/Overlay implement
+      // it) - on Android this marker was always clickable regardless of this
+      // prop. Sitting directly on top of BusMarker (same coordinate, higher
+      // zIndex) with no onPress of its own, it silently ate the first tap
+      // (native default info-window toolbar, no JS callback), and only a
+      // second tap - landing on BusMarker underneath - actually opened the
+      // callout. Forwarding the same onPress here (with stopPropagation, see
+      // BusMarker) makes the first tap work regardless of which of the two
+      // overlapping markers Android hands the touch to.
       tappable={false}
+      onPress={e => { e.stopPropagation(); onPress(); }}
       // Was 9, one below BusMarker's 10 - barely noticeable at the old
       // fixed bus-icon size, but once bus icons started scaling with
       // Accessibility > Icon Size (Large/Extra Large grow well past the
@@ -3049,7 +3076,7 @@ function GlidingBus({
         isGoogleMaps={isGoogleMaps}
         onPress={onPress}
       />
-      <BusHeadingMarker bus={glidingBus} opacity={opacity} isGoogleMaps={isGoogleMaps} />
+      <BusHeadingMarker bus={glidingBus} opacity={opacity} isGoogleMaps={isGoogleMaps} onPress={onPress} />
     </>
   );
 }

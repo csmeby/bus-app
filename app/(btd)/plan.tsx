@@ -17,94 +17,32 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
+import { BTD_TINT } from '@/constants/btd-theme';
 import { DARK_MAP_STYLE } from '@/constants/theme';
 import { useThemeColors } from '@/context/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { API_BASE } from '@/lib/api-base';
-import routePatterns from '../../routes_patterns.json';
+import {
+  type Itinerary,
+  type LatLon,
+  type Leg,
+  type PlanResult,
+  knownBtdStops,
+  planBtdTrip,
+} from '@/lib/btd-trip-planner';
 
-const CAMPUS_REGION = { latitude: 30.615, longitude: -96.34, latitudeDelta: 0.03, longitudeDelta: 0.03 };
+const CAMPUS_REGION = { latitude: 30.615, longitude: -96.34, latitudeDelta: 0.05, longitudeDelta: 0.05 };
 
-// Walking legs are always drawn the same way regardless of itinerary, so the
-// eye can tell "you're on foot here" at a glance. Bus legs use the route's
-// real brand color only when an itinerary actually involves 2+ different
-// routes (so a transfer is visually distinguishable); a single-route trip
-// always renders in one consistent transit color, since the rider doesn't
-// need a legend for a trip that only ever uses one route.
 const WALK_COLOR = '#9CA3AF';
-const TRANSIT_COLOR = '#2563EB';
 
-type LatLon = { lat: number; lon: number };
+const KNOWN_STOPS = knownBtdStops();
 
-type Leg = {
-  type: 'walk' | 'wait' | 'bus';
-  description: string;
-  minutes: number;
-  distanceMiles?: number;
-  route?: string;
-  direction?: string;
-  color?: string;
-  path?: LatLon[];
-  departTime?: string; // ISO — only present on 'wait' legs: when that bus actually leaves the stop
-};
-
-type Itinerary = {
-  totalMinutes: number;
-  departTime: string;
-  arriveTime: string;
-  legs: Leg[];
-  // True when the rider gave an "arrive by" deadline and this itinerary's
-  // real arrival is after it - server/trip_planner.py still returns these
-  // rather than dropping them (a rider who can't walk the whole way needs
-  // to see the bus exists even late), so the UI flags it instead.
-  missesDeadline?: boolean;
-};
-
-type PlanResult = {
-  feasible: boolean;
-  itineraries: Itinerary[];
-  message: string | null;
-};
-
-// ── Known-stop search ─────────────────────────────────────────────────────
-// routes_patterns.json is already bundled with the app (it's how the map
-// screen draws route lines/stops), so building a local, offline-searchable
-// stop list costs nothing and answers instantly — no API key, no network
-// round trip, no rate limit. A stop can sit on more than one route, so we
-// dedupe by stop code and just accumulate which routes serve it.
-
-type KnownStop = {
-  code: string;
-  name: string;
-  lat: number;
-  lng: number;
-  routes: string[];
-};
-
-const KNOWN_STOPS: KnownStop[] = (() => {
-  const byCode = new Map<string, KnownStop>();
-  Object.entries(routePatterns as Record<string, any>).forEach(([routeNum, routeData]) => {
-    Object.values(routeData.patterns ?? {}).forEach((pattern: any) => {
-      (pattern.stops ?? []).forEach((stop: any) => {
-        const existing = byCode.get(stop.code);
-        if (existing) {
-          if (!existing.routes.includes(routeNum)) existing.routes.push(routeNum);
-        } else {
-          byCode.set(stop.code, { code: stop.code, name: stop.name, lat: stop.lat, lng: stop.lng, routes: [routeNum] });
-        }
-      });
-    });
-  });
-  return Array.from(byCode.values());
-})();
-
-function searchKnownStops(query: string, limit = 6): KnownStop[] {
+function searchKnownStops(query: string, limit = 6) {
   const q = query.trim().toLowerCase();
   if (!q) return [];
-  const starts: KnownStop[] = [];
-  const contains: KnownStop[] = [];
+  const starts: typeof KNOWN_STOPS = [];
+  const contains: typeof KNOWN_STOPS = [];
   for (const stop of KNOWN_STOPS) {
-    const name = stop.name.toLowerCase();
+    const name = stop.label.toLowerCase();
     if (name.startsWith(q)) starts.push(stop);
     else if (name.includes(q)) contains.push(stop);
     if (starts.length >= limit) break;
@@ -113,19 +51,11 @@ function searchKnownStops(query: string, limit = 6): KnownStop[] {
 }
 
 // ── General place search (Photon) ───────────────────────────────────────
-// Photon (https://photon.komoot.io) is komoot's free public OpenStreetMap
-
 const PHOTON_BBOX = '-96.614456,30.432690,-96.078186,30.896333';
 const PHOTON_MIN_CHARS = 3;
 const PHOTON_DEBOUNCE_MS = 400;
 
-type PhotonResult = {
-  id: string;
-  label: string;
-  sublabel: string | null;
-  lat: number;
-  lon: number;
-};
+type PhotonResult = { id: string; label: string; sublabel: string | null; lat: number; lon: number };
 
 function buildPhotonLabel(props: Record<string, any>): { label: string; sublabel: string | null } {
   const label = props.name || [props.street, props.housenumber].filter(Boolean).join(' ') || 'Unnamed place';
@@ -143,15 +73,12 @@ async function fetchPhotonResults(query: string, signal: AbortSignal): Promise<P
   const data = await res.json();
   const features: any[] = data?.features ?? [];
   return features.map((f, i) => {
-    const [lon, lat] = f.geometry?.coordinates ?? [0, 0]; // GeoJSON is [lon, lat], not [lat, lon]
+    const [lon, lat] = f.geometry?.coordinates ?? [0, 0];
     const { label, sublabel } = buildPhotonLabel(f.properties ?? {});
     return { id: `${f.properties?.osm_type ?? 'p'}${f.properties?.osm_id ?? i}`, label, sublabel, lat, lon };
   });
 }
 
-// Debounces a free-text query against Photon: waits for typing to pause,
-// requires a minimum length, and cancels any in-flight request that's been
-// superseded by newer input so slow responses can't clobber fresh ones.
 function usePhotonSearch(query: string) {
   const [results, setResults] = useState<PhotonResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -201,7 +128,7 @@ async function reverseGeocodeLabel(lat: number, lon: number): Promise<string | n
   }
 }
 
-// ── Date / time formatting ──────────────────────────────────────────────────
+// ── Date / time formatting ──────────────────────────────────────────────
 
 function toDateStr(d: Date): string {
   const y = d.getFullYear();
@@ -241,8 +168,6 @@ function legIcon(leg: Leg): React.ComponentProps<typeof MaterialIcons>['name'] {
   return 'directions-bus';
 }
 
-// Fits a region around every point across every leg's path, with a little
-// padding so endpoints aren't flush against the map edge.
 function regionForItinerary(itin: Itinerary) {
   const points = itin.legs.flatMap(l => l.path ?? []);
   if (points.length === 0) return CAMPUS_REGION;
@@ -262,18 +187,7 @@ function regionForItinerary(itin: Itinerary) {
   };
 }
 
-// Single-route trips always render in one consistent transit color; only
-// once an itinerary actually involves 2+ different routes does each bus leg
-// get its own route-brand color, so a transfer is visually distinguishable.
-function colorForBusLeg(leg: Leg, multiRoute: boolean): string {
-  if (multiRoute) return leg.color ?? TRANSIT_COLOR;
-  return TRANSIT_COLOR;
-}
-
-// ── Location search field ────────────────────────────────────────────────────
-// One search box + results list, shared by the origin and destination cards
-// (they were identical apart from which state they wrote into). Owns its own
-// query/focus state; the parent only hears about the final pick.
+// ── Location search field ────────────────────────────────────────────────
 
 function LocationField({
   valueLabel,
@@ -281,12 +195,14 @@ function LocationField({
   searchLabel,
   onPick,
   c,
+  tint,
 }: {
   valueLabel: string | null;
   emptyLabel: string;
   searchLabel: string;
   onPick: (point: LatLon, label: string) => void;
   c: ReturnType<typeof useThemeColors>;
+  tint: string;
 }) {
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
@@ -333,16 +249,16 @@ function LocationField({
         <View style={[styles.resultsList, { borderColor: c.border, backgroundColor: c.surfaceAlt }]}>
           {stopMatches.map(stop => (
             <TouchableOpacity
-              key={stop.code}
+              key={stop.key}
               style={styles.resultRow}
-              onPress={() => pick({ lat: stop.lat, lon: stop.lng }, stop.name)}
+              onPress={() => pick({ lat: stop.lat, lon: stop.lng }, stop.label)}
               activeOpacity={0.6}
               accessibilityRole="button"
-              accessibilityLabel={`${stop.name}, bus stop, route${stop.routes.length > 1 ? 's' : ''} ${stop.routes.join(', ')}`}
+              accessibilityLabel={`${stop.label}, bus stop, route${stop.routes.length > 1 ? 's' : ''} ${stop.routes.join(', ')}`}
             >
-              <MaterialIcons name="directions-bus" size={16} color={c.tint} />
+              <MaterialIcons name="directions-bus" size={16} color={tint} />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.resultName, { color: c.text }]} numberOfLines={1}>{stop.name}</Text>
+                <Text style={[styles.resultName, { color: c.text }]} numberOfLines={1}>{stop.label}</Text>
                 <Text style={[styles.resultSub, { color: c.textSecondary }]} numberOfLines={1}>
                   Bus stop · Route{stop.routes.length > 1 ? 's' : ''} {stop.routes.join(', ')}
                 </Text>
@@ -356,7 +272,7 @@ function LocationField({
 
           {searching && placeMatches.length === 0 && (
             <View style={styles.resultRow}>
-              <ActivityIndicator size="small" color={c.tint} />
+              <ActivityIndicator size="small" color={tint} />
               <Text style={[styles.resultSub, { color: c.textSecondary }]}>Searching nearby places…</Text>
             </View>
           )}
@@ -393,9 +309,10 @@ function LocationField({
   );
 }
 
-export default function PlanRideScreen() {
+export default function BtdPlanRideScreen() {
   const scheme = useColorScheme();
   const c = useThemeColors();
+  const tint = BTD_TINT[scheme];
 
   const [origin, setOrigin] = useState<LatLon | null>(null);
   const [originLabel, setOriginLabel] = useState<string | null>(null);
@@ -414,11 +331,8 @@ export default function PlanRideScreen() {
   const [departTime, setDepartTime] = useState<Date | null>(null);
   const [arriveTime, setArriveTime] = useState<Date | null>(null);
   const [activeTimeField, setActiveTimeField] = useState<'depart' | 'arrive' | null>(null);
-  // iOS shows the spinner inline in a sheet we control; Android opens its own
-  // dialog imperatively and never needs this state.
   const [showIOSTimeSheet, setShowIOSTimeSheet] = useState(false);
 
-  const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PlanResult | null>(null);
   const [routePreviewItin, setRoutePreviewItin] = useState<Itinerary | null>(null);
 
@@ -463,12 +377,6 @@ export default function PlanRideScreen() {
     }
   };
 
-  // ── Date picker ────────────────────────────────────────────────────────
-  // Android's date dialog is imperative (DateTimePickerAndroid.open) and has
-  // no inline component; iOS renders <DateTimePicker> itself, so we show it
-  // inside a sheet we control. No upper bound — a person planning a week or
-  // a semester out should be able to scroll the calendar forward freely.
-
   const openDatePicker = () => {
     if (Platform.OS === 'android') {
       DateTimePickerAndroid.open({
@@ -483,8 +391,6 @@ export default function PlanRideScreen() {
       setShowDatePicker(true);
     }
   };
-
-  // ── Time pickers ───────────────────────────────────────────────────────
 
   const openTimePicker = (field: 'depart' | 'arrive') => {
     const current = (field === 'depart' ? departTime : arriveTime) ?? new Date();
@@ -506,31 +412,15 @@ export default function PlanRideScreen() {
     }
   };
 
-  const findRoutes = async () => {
+  const findRoutes = () => {
     if (!origin || !destination || !hasTimeConstraint) return;
-
-    setLoading(true);
-    setResult(null);
-    try {
-      const res = await fetch(`${API_BASE}/trip-plan`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          origin: { lat: origin.lat, lon: origin.lon },
-          destination: { lat: destination.lat, lon: destination.lon },
-          departAfter: departTime ? fmtHM(departTime) : undefined,
-          arriveBy: arriveTime ? fmtHM(arriveTime) : undefined,
-          date: toDateStr(selectedDate),
-        }),
-      });
-      const data: PlanResult = await res.json();
-      setResult(data);
-    } catch (e) {
-      console.warn('Trip plan request failed:', e);
-      setResult({ feasible: false, itineraries: [], message: 'Could not reach the planner. Check your connection and try again.' });
-    } finally {
-      setLoading(false);
-    }
+    // Synchronous and local - no network round trip, see lib/btd-trip-planner.ts.
+    const data = planBtdTrip(origin, destination, {
+      departAfter: departTime ? fmtHM(departTime) : undefined,
+      arriveBy: arriveTime ? fmtHM(arriveTime) : undefined,
+      date: toDateStr(selectedDate),
+    });
+    setResult(data);
   };
 
   const hasTimeConstraint = !!departTime || !!arriveTime;
@@ -551,7 +441,7 @@ export default function PlanRideScreen() {
         <View style={[styles.disclaimer, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
           <MaterialIcons name="info-outline" size={14} color={c.textSecondary} />
           <Text style={[styles.disclaimerText, { color: c.textSecondary }]}>
-            This is an estimate. Always check the live map and allow extra buffer time.
+            This is an estimate from BTD's posted schedule. Buses run Monday-Friday, 5 AM-7 PM only.
           </Text>
         </View>
 
@@ -564,6 +454,7 @@ export default function PlanRideScreen() {
             searchLabel="Search for a starting point"
             onPick={(point, label) => { setOrigin(point); setOriginLabel(label); }}
             c={c}
+            tint={tint}
           />
 
           <View style={styles.buttonRow}>
@@ -576,7 +467,7 @@ export default function PlanRideScreen() {
               accessibilityLabel="Use current location"
               accessibilityState={{ disabled: locating, busy: locating }}
             >
-              {locating ? <ActivityIndicator size="small" color={c.tint} /> : <MaterialIcons name="my-location" size={16} color={c.tint} />}
+              {locating ? <ActivityIndicator size="small" color={tint} /> : <MaterialIcons name="my-location" size={16} color={tint} />}
               <Text style={[styles.choiceBtnText, { color: c.text }]}>Current Location</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -586,7 +477,7 @@ export default function PlanRideScreen() {
               accessibilityRole="button"
               accessibilityLabel="Choose starting point on map"
             >
-              <MaterialIcons name="map" size={16} color={c.tint} />
+              <MaterialIcons name="map" size={16} color={tint} />
               <Text style={[styles.choiceBtnText, { color: c.text }]}>Choose on Map</Text>
             </TouchableOpacity>
           </View>
@@ -605,8 +496,8 @@ export default function PlanRideScreen() {
             accessibilityLabel="Swap starting point and destination"
             accessibilityState={{ disabled: !origin && !destination }}
           >
-            <MaterialIcons name="swap-vert" size={16} color={(origin || destination) ? c.tint : c.border} />
-            <Text style={[styles.swapBtnText, { color: (origin || destination) ? c.tint : c.border }]}>Swap</Text>
+            <MaterialIcons name="swap-vert" size={16} color={(origin || destination) ? tint : c.border} />
+            <Text style={[styles.swapBtnText, { color: (origin || destination) ? tint : c.border }]}>Swap</Text>
           </TouchableOpacity>
         </View>
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
@@ -616,6 +507,7 @@ export default function PlanRideScreen() {
             searchLabel="Search for a destination"
             onPick={(point, label) => { setDestination(point); setDestinationLabel(label); }}
             c={c}
+            tint={tint}
           />
 
           <View style={styles.buttonRow}>
@@ -626,7 +518,7 @@ export default function PlanRideScreen() {
               accessibilityRole="button"
               accessibilityLabel="Choose destination on map"
             >
-              <MaterialIcons name="map" size={16} color={c.tint} />
+              <MaterialIcons name="map" size={16} color={tint} />
               <Text style={[styles.choiceBtnText, { color: c.text }]}>Choose on Map</Text>
             </TouchableOpacity>
           </View>
@@ -642,7 +534,7 @@ export default function PlanRideScreen() {
           accessibilityLabel={`Travel date, currently ${selectedDate.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`}
           accessibilityHint="Opens the date picker"
         >
-          <MaterialIcons name="calendar-today" size={18} color={c.tint} />
+          <MaterialIcons name="calendar-today" size={18} color={tint} />
           <Text style={[styles.dateRowText, { color: c.text }]}>{formatDateLabel(selectedDate)}</Text>
           <Text style={[styles.dateRowSub, { color: c.textSecondary }]}>
             {selectedDate.toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' })}
@@ -667,7 +559,7 @@ export default function PlanRideScreen() {
                 accessibilityLabel={`Leave after, currently ${departTime ? formatTimeLabel(departTime) : 'anytime'}`}
                 accessibilityHint="Opens the time picker"
               >
-                <MaterialIcons name="schedule" size={15} color={departTime ? c.tint : c.textSecondary} />
+                <MaterialIcons name="schedule" size={15} color={departTime ? tint : c.textSecondary} />
                 <Text style={[styles.timeChipText, { color: departTime ? c.text : c.textSecondary }]}>
                   {departTime ? formatTimeLabel(departTime) : 'Anytime'}
                 </Text>
@@ -697,7 +589,7 @@ export default function PlanRideScreen() {
                 accessibilityLabel={`Arrive by, currently ${arriveTime ? formatTimeLabel(arriveTime) : 'no deadline'}`}
                 accessibilityHint="Opens the time picker"
               >
-                <MaterialIcons name="schedule" size={15} color={arriveTime ? c.tint : c.textSecondary} />
+                <MaterialIcons name="schedule" size={15} color={arriveTime ? tint : c.textSecondary} />
                 <Text style={[styles.timeChipText, { color: arriveTime ? c.text : c.textSecondary }]}>
                   {arriveTime ? formatTimeLabel(arriveTime) : 'No deadline'}
                 </Text>
@@ -718,15 +610,15 @@ export default function PlanRideScreen() {
         </View>
 
         <TouchableOpacity
-          style={[styles.findBtn, { backgroundColor: !canFindRoutes ? c.border : c.tint }]}
+          style={[styles.findBtn, { backgroundColor: !canFindRoutes ? c.border : tint }]}
           onPress={findRoutes}
-          disabled={!canFindRoutes || loading}
+          disabled={!canFindRoutes}
           activeOpacity={0.8}
           accessibilityRole="button"
           accessibilityLabel="Find routes"
-          accessibilityState={{ disabled: !canFindRoutes || loading, busy: loading }}
+          accessibilityState={{ disabled: !canFindRoutes }}
         >
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.findBtnText}>Find Routes</Text>}
+          <Text style={styles.findBtnText}>Find Routes</Text>
         </TouchableOpacity>
         {origin && destination && !hasTimeConstraint && (
           <Text style={[styles.findBtnHint, { color: c.textSecondary }]}>
@@ -768,7 +660,7 @@ export default function PlanRideScreen() {
                     </View>
                   ))}
                   <TouchableOpacity
-                    style={[styles.startBtn, { backgroundColor: c.tint }]}
+                    style={[styles.startBtn, { backgroundColor: tint }]}
                     onPress={() => setRoutePreviewItin(itin)}
                     activeOpacity={0.8}
                     accessibilityRole="button"
@@ -784,11 +676,7 @@ export default function PlanRideScreen() {
         )}
       </ScrollView>
 
-      {/* Route preview modal — shows just this itinerary's walking + bus
-          segments (board to alight only, never the full route), not the
-          live map. Bus legs share one consistent color unless the trip
-          involves 2+ different routes, in which case each gets its real
-          route color so the transfer point is easy to read. */}
+      {/* Route preview modal */}
       <Modal
         visible={routePreviewItin !== null}
         animationType="slide"
@@ -804,10 +692,6 @@ export default function PlanRideScreen() {
             )}
           </View>
           {routePreviewItin && (() => {
-            const busRoutes = new Set(
-              routePreviewItin.legs.filter(l => l.type === 'bus' && l.route).map(l => l.route)
-            );
-            const multiRoute = busRoutes.size > 1;
             const region = regionForItinerary(routePreviewItin);
             return (
               <MapView
@@ -835,7 +719,7 @@ export default function PlanRideScreen() {
                       <Polyline
                         key={i}
                         coordinates={coords}
-                        strokeColor={colorForBusLeg(leg, multiRoute)}
+                        strokeColor={leg.color ?? tint}
                         strokeWidth={5}
                       />
                     );
@@ -875,6 +759,7 @@ export default function PlanRideScreen() {
                   return busLegIndices.flatMap((legIndex, order) => {
                     const leg = routePreviewItin.legs[legIndex];
                     if (!leg.path || leg.path.length === 0) return [];
+                    const routeLabel = leg.routeName ?? `Route ${leg.route}`;
                     const markers: React.ReactNode[] = [];
                     if (order > 0) {
                       const board = leg.path[0];
@@ -882,8 +767,8 @@ export default function PlanRideScreen() {
                         <Marker
                           key={`board-${legIndex}`}
                           coordinate={{ latitude: board.lat, longitude: board.lon }}
-                          title={`Board Route ${leg.route}`}
-                          pinColor={leg.color ?? TRANSIT_COLOR}
+                          title={`Board the ${routeLabel} Route`}
+                          pinColor={leg.color ?? tint}
                         />
                       );
                     }
@@ -893,8 +778,8 @@ export default function PlanRideScreen() {
                         <Marker
                           key={`alight-${legIndex}`}
                           coordinate={{ latitude: alight.lat, longitude: alight.lon }}
-                          title={`Get off Route ${leg.route} here`}
-                          pinColor={leg.color ?? TRANSIT_COLOR}
+                          title={`Get off the ${routeLabel} Route here`}
+                          pinColor={leg.color ?? tint}
                         />
                       );
                     }
@@ -906,7 +791,7 @@ export default function PlanRideScreen() {
           })()}
           <View style={[styles.pickerFooter, { backgroundColor: c.surface }]}>
             <TouchableOpacity
-              style={[styles.pickerConfirmBtn, { backgroundColor: c.tint, flex: 1 }]}
+              style={[styles.pickerConfirmBtn, { backgroundColor: tint, flex: 1 }]}
               onPress={() => setRoutePreviewItin(null)}
               activeOpacity={0.8}
               accessibilityRole="button"
@@ -945,7 +830,7 @@ export default function PlanRideScreen() {
               <Text style={{ color: c.textSecondary, fontSize: 15, fontWeight: '600' }}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.pickerConfirmBtn, { backgroundColor: c.tint }]}
+              style={[styles.pickerConfirmBtn, { backgroundColor: tint }]}
               onPress={confirmMapPicker}
               activeOpacity={0.8}
               accessibilityRole="button"
@@ -956,7 +841,7 @@ export default function PlanRideScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* iOS date sheet — Android uses the imperative dialog above instead */}
+      {/* iOS date sheet - Android uses the imperative dialog above instead */}
       {Platform.OS === 'ios' && (
         <Modal visible={showDatePicker} animationType="slide" transparent onRequestClose={() => setShowDatePicker(false)}>
           <View style={styles.sheetBackdrop}>
@@ -967,7 +852,7 @@ export default function PlanRideScreen() {
                 </TouchableOpacity>
                 <Text style={[styles.sheetTitle, { color: c.text }]} accessibilityRole="header">Choose a date</Text>
                 <TouchableOpacity onPress={() => setShowDatePicker(false)} accessibilityRole="button" hitSlop={8}>
-                  <Text style={[styles.sheetDone, { color: c.tint }]}>Done</Text>
+                  <Text style={[styles.sheetDone, { color: tint }]}>Done</Text>
                 </TouchableOpacity>
               </View>
               <DateTimePicker
@@ -976,7 +861,7 @@ export default function PlanRideScreen() {
                 display="inline"
                 minimumDate={new Date()}
                 themeVariant={scheme}
-                accentColor={c.tint}
+                accentColor={tint}
                 onChange={(_, date) => date && setSelectedDate(date)}
               />
             </View>
@@ -984,7 +869,7 @@ export default function PlanRideScreen() {
         </Modal>
       )}
 
-      {/* iOS time sheet — Android uses the imperative dialog above instead */}
+      {/* iOS time sheet - Android uses the imperative dialog above instead */}
       {Platform.OS === 'ios' && (
         <Modal visible={showIOSTimeSheet} animationType="slide" transparent onRequestClose={() => setShowIOSTimeSheet(false)}>
           <View style={styles.sheetBackdrop}>
@@ -1006,7 +891,7 @@ export default function PlanRideScreen() {
                     setShowIOSTimeSheet(false);
                   }}
                 >
-                  <Text style={[styles.sheetDone, { color: c.tint }]}>Done</Text>
+                  <Text style={[styles.sheetDone, { color: tint }]}>Done</Text>
                 </TouchableOpacity>
               </View>
               <DateTimePicker

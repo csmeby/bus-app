@@ -106,9 +106,6 @@ export default function CalendarScreen() {
     const start = toDateStr(new Date(year, month, 1));
     const end = toDateStr(new Date(year, month + 1, 0));
     setLoading(true);
-    // The academic calendar is published well in advance and doesn't change
-    // day to day - serve the cached month outright for a while, and fall
-    // back to it regardless of age if the server's unreachable.
     cachedJsonFetch<any>(`${API_BASE}/calendar/days?start=${start}&end=${end}`, `calendar:${start}:${end}`, {
       maxAgeMs: 24 * 60 * 60 * 1000,
     })
@@ -170,6 +167,7 @@ export default function CalendarScreen() {
             {gridCells.map(cell => {
               const info = days[cell.dateStr];
               const isToday = cell.dateStr === todayStr;
+              const isPast = cell.dateStr < todayStr;
               const dateLabel = cell.date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
               return (
                 <TouchableOpacity
@@ -180,10 +178,10 @@ export default function CalendarScreen() {
                   activeOpacity={0.7}
                   accessibilityRole="button"
                   accessibilityLabel={`${dateLabel}${isToday ? ', today' : ''}${info ? `, ${info.primaryLabel}` : ''}`}
-                  accessibilityHint={info ? 'Shows this day’s transit schedule changes' : undefined}
+                  accessibilityHint={info ? 'Shows this day\'s transit schedule changes' : undefined}
                   accessibilityState={{ disabled: !info }}
                 >
-                  {info?.secondaryColor ? (
+                  {info?.secondaryColor && !isPast ? (
                     <LinearGradient
                       colors={[info.primaryColor, info.primaryColor, info.secondaryColor, info.secondaryColor]}
                       locations={[0, 0.49, 0.51, 1]}
@@ -201,14 +199,17 @@ export default function CalendarScreen() {
                     <View
                       style={[
                         styles.dayCellInner,
-                        { backgroundColor: info ? info.primaryColor + (cell.inMonth ? '' : '66') : 'transparent' },
+                        {
+                          backgroundColor:
+                            info && !isPast ? info.primaryColor + (cell.inMonth ? '' : '66') : 'transparent',
+                        },
                         isToday && { borderWidth: 2, borderColor: c.tint },
                       ]}
                     >
                       <Text
                         style={[
                           styles.dayNumber,
-                          { color: info ? '#fff' : cell.inMonth ? c.text : c.textSecondary },
+                          { color: info && !isPast ? '#fff' : cell.inMonth ? c.text : c.textSecondary },
                         ]}
                       >
                         {cell.date.getDate()}
