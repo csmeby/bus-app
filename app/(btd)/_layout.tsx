@@ -49,7 +49,7 @@ export default function BtdTabLayout() {
         name="map"
         options={{
           title: 'Map',
-          tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="bus.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="map.fill" color={color} />,
         }}
       />
       <Tabs.Screen
@@ -66,13 +66,11 @@ export default function BtdTabLayout() {
           tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="clock.fill" color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="info"
-        options={{
-          title: 'Info',
-          tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="info.circle.fill" color={color} />,
-        }}
-      />
+      {/* Still a real route (More > Info pushes to it), just no longer its
+          own tab - href: null keeps it registered without a tab bar icon,
+          matching how AggieSpirit's own Help Guide lives as a More row
+          instead of a tab. */}
+      <Tabs.Screen name="info" options={{ href: null }} />
       <Tabs.Screen
         name="more"
         options={{

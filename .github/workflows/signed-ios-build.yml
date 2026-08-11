@@ -5,6 +5,9 @@ name: Signed iOS build (TestFlight / App Store / sideloading)
 # this shouldn't run automatically on every commit.
 #
 # ── Required repo secrets (Settings → Secrets and variables → Actions) ──
+#   GOOGLE_MAPS_API_KEY          Maps SDK key from Google Cloud Console
+#                                 (see app.config.js/.env.example) - needed
+#                                 by the prebuild step below
 #   BUILD_CERTIFICATE_BASE64    base64 of your exported .p12 signing cert
 #                                (macOS: `base64 -i Certificate.p12 | pbcopy`)
 #   P12_PASSWORD                 the password you set when exporting that .p12
@@ -94,6 +97,8 @@ jobs:
         run: npm ci
 
       - name: Prebuild native iOS project
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
         run: npx expo prebuild --platform ios --no-install
 
       # Diagnostic: prints exactly what expo prebuild generated, straight

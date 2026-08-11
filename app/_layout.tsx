@@ -13,7 +13,6 @@ import { DEFAULT_LAUNCH_BTD_KEY, ONBOARDING_COMPLETE_KEY } from '@/lib/onboardin
 import { TourProvider } from '@/lib/tour-context';
 import { AccessibilityProvider } from '@/context/accessibility-context';
 import { FavoritesProvider } from '@/context/favorites-context';
-import { MapProviderProvider } from '@/context/map-provider-context';
 import { ThemeProvider, useAppTheme } from '@/context/theme-context';
 import { UnitCodesProvider } from '@/context/unit-codes-context';
 import { useEffect } from 'react';
@@ -54,7 +53,6 @@ function RootLayoutInner() {
         <Stack.Screen name="(btd)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="theme" options={{ headerShown: false }} />
-        <Stack.Screen name="map-provider" options={{ headerShown: false }} />
         <Stack.Screen name="accessibility" options={{ headerShown: false }} />
         <Stack.Screen name="favorites" options={{ headerShown: false }} />
         <Stack.Screen name="disruptions" options={{ headerShown: false }} />
@@ -101,15 +99,13 @@ export default function RootLayout() {
     <ErrorBoundary>
       <ThemeProvider>
         <AccessibilityProvider>
-          <MapProviderProvider>
-            <FavoritesProvider>
-              <UnitCodesProvider>
-                <TourProvider>
-                  <RootLayoutInner />
-                </TourProvider>
-              </UnitCodesProvider>
-            </FavoritesProvider>
-          </MapProviderProvider>
+          <FavoritesProvider>
+            <UnitCodesProvider>
+              <TourProvider>
+                <RootLayoutInner />
+              </TourProvider>
+            </UnitCodesProvider>
+          </FavoritesProvider>
         </AccessibilityProvider>
       </ThemeProvider>
     </ErrorBoundary>

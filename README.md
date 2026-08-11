@@ -23,6 +23,7 @@ source of truth for current-semester direction UUIDs.
 
 ```bash
 npm install
+cp .env.example .env   # fill in GOOGLE_MAPS_API_KEY, see below
 npx expo start
 ```
 
@@ -32,3 +33,24 @@ Type-check and lint:
 npx tsc --noEmit
 npm run lint
 ```
+
+## Secrets
+
+App config (`app.config.js`, generated from what used to be `app.json`)
+reads `GOOGLE_MAPS_API_KEY` from the environment instead of hardcoding it,
+so it's safe to keep this repo public. Get a key from [Google Cloud
+Console](https://console.cloud.google.com/apis/credentials) with the Maps
+SDK for Android and Maps SDK for iOS enabled, restricted to this app's
+package name / bundle ID (`com.csmeby.ctt`).
+
+- **Local dev:** put it in `.env` (gitignored, see `.env.example`).
+- **GitHub Actions:** add it as a repo secret named `GOOGLE_MAPS_API_KEY`
+  (Settings → Secrets and variables → Actions → New repository secret) — the
+  iOS build workflows read it from there during `expo prebuild`.
+- **EAS Build:** `eas secret:create --scope project --name GOOGLE_MAPS_API_KEY --value <key> --type string`
+  if you ever build through EAS instead of the GitHub Actions workflows.
+
+The iOS signing files (`.p8`/`.p12`/`.mobileprovision`/`private.key`) live
+outside this repo entirely and are gitignored as a second layer of
+protection — see `SIGNING_KEYS_README.txt` in the parent folder for what
+each one is and which GitHub secret it maps to.

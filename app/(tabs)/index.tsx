@@ -17,7 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_DEFAULT, Polyline } from 'react-native-maps';
 
 import { MarkerImageFactory, useMarkerImage } from '@/lib/marker-image-factory';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,7 +29,6 @@ import { useThemeColors } from '@/context/theme-context';
 import { ALL_ROUTES } from '@/constants/routes';
 import { findFleetInfo, fleetNotesFor, type FleetBlock } from '@/constants/fleet';
 import { ICON_SCALE, useAccessibility, type IconSize as IconSizeType } from '@/context/accessibility-context';
-import { GOOGLE_MAPS_IOS_READY, useMapProvider } from '@/context/map-provider-context';
 import { useFavorites } from '@/context/favorites-context';
 import { useUnitCodes } from '@/context/unit-codes-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -536,28 +535,15 @@ export default function MapScreen() {
   const scheme = useColorScheme();
   const c = useThemeColors();
   const { reduceMotion, iconSize: currentIconSize } = useAccessibility();
-  // Android has no Apple Maps to switch away from - it's always Google
-  // Maps there. iOS honors the Settings > Map choice (see
-  // context/map-provider-context.tsx); PROVIDER_DEFAULT there means Apple
-  // Maps specifically, not "whatever this platform defaults to."
-  const { mapProvider } = useMapProvider();
-  const provider = Platform.OS === 'ios' && mapProvider === 'google' && GOOGLE_MAPS_IOS_READY ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
-  // tracksViewChanges is a dead prop on the Google Maps renderer under the
-  // New Architecture (Android always uses it; iOS can now opt in too via
-  // Settings > Map) - toggling it never re-snapshots a custom marker view,
-  // so anything relying on a one-shot true->false flip to freeze AFTER its
-  // first real paint can get stuck on a blank/default icon if that first
-  // paint races the snapshot. Apple Maps' renderer doesn't have this bug -
-  // its tracksViewChanges toggling genuinely works, so this only forces the
-  // always-true workaround on the renderer that actually needs it.
-  // NOT just `provider === PROVIDER_GOOGLE` - `provider` only becomes
-  // PROVIDER_GOOGLE on iOS (see above), so that check alone is always false
-  // on Android and was silently routing Android through every branch in
-  // this file meant for Apple Maps' renderer instead (the two-marker bus
-  // composite, the pre-rendered ring image, every Android-specific
-  // workaround below) even though Android's native map has always genuinely
-  // been Google Maps under PROVIDER_DEFAULT the whole time.
-  const isGoogleMaps = Platform.OS === 'android' || provider === PROVIDER_GOOGLE;
+  // iOS only ever uses Apple Maps now - Google Maps on iOS was tried (a
+  // Settings > Map provider choice) and dropped: react-native-maps' Google
+  // renderer never paints a composed-View Marker at all on iOS, and the
+  // only workaround for rich/interactive content (a screen-space overlay
+  // via pointForCoordinate) can't track a live pan/zoom gesture in real
+  // time, which wasn't an acceptable tradeoff. Android has no Apple Maps to
+  // switch away from - it's always Google Maps there regardless.
+  const provider = PROVIDER_DEFAULT;
+  const isGoogleMaps = Platform.OS === 'android';
   const insets = useSafeAreaInsets();
   const { isFavorite } = useFavorites();
   const { enabled: unitCodesEnabled } = useUnitCodes();
@@ -2025,19 +2011,6 @@ export default function MapScreen() {
     <View style={styles.root}>
       <MarkerImageFactory />
       <MapView
-        // Apple Maps (MapKit, native class AIRMap) and Google Maps (native
-        // class AIRGoogleMap) are two entirely different native views -
-        // switching `provider` at runtime (Settings > Map, iOS only) only
-        // updates a prop on the SAME already-mounted native instance, it
-        // doesn't swap which native class backs it. Markers/polylines
-        // already queued for the old view then land on the fresh one at
-        // indices that don't exist yet - exactly the crash TestFlight
-        // reported (`insertObject:atIndex:index N beyond bounds for empty
-        // array` in AIRGoogleMap.mm, only on a live in-app switch, never on
-        // a cold start where the right provider is chosen from the start).
-        // Keying on the provider forces React to fully unmount/remount into
-        // the correct native class instead of trying to reuse the old one.
-        key={provider === PROVIDER_GOOGLE ? 'google' : 'default'}
         ref={mapRef}
         provider={provider}
         style={StyleSheet.absoluteFillObject}

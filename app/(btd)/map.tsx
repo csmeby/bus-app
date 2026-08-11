@@ -11,13 +11,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_DEFAULT, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BTD_TINT } from '@/constants/btd-theme';
 import { DARK_MAP_STYLE } from '@/constants/theme';
 import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
-import { GOOGLE_MAPS_IOS_READY, useMapProvider } from '@/context/map-provider-context';
 import { useThemeColors } from '@/context/theme-context';
 import { ScaledText as Text } from '@/components/scaled-text';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -154,18 +153,10 @@ export default function BtdMapScreen() {
   const tint = BTD_TINT[scheme];
   const { iconSize } = useAccessibility();
   const iconScale = ICON_SCALE[iconSize];
-  // See app/(tabs)/index.tsx's own comment on this same pattern.
-  const { mapProvider } = useMapProvider();
-  const provider = Platform.OS === 'ios' && mapProvider === 'google' && GOOGLE_MAPS_IOS_READY ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
-  // tracksViewChanges is a dead prop on the Google Maps renderer under the
-  // New Architecture - a marker frozen at `false` never gets a chance to
-  // re-snapshot its custom child view if the initial mount-time snapshot
-  // races the view's own layout, silently leaving no icon at all. See
-  // app/(tabs)/index.tsx's StopMarker for the full writeup.
-  // NOT just `provider === PROVIDER_GOOGLE` - see app/(tabs)/index.tsx's own
-  // comment on this exact line: that check alone is always false on
-  // Android, since `provider` only becomes PROVIDER_GOOGLE on iOS above.
-  const isGoogleMaps = Platform.OS === 'android' || provider === PROVIDER_GOOGLE;
+  // See app/(tabs)/index.tsx's own comment on this same pattern - iOS only
+  // ever uses Apple Maps now (the Google Maps provider option was dropped).
+  const provider = PROVIDER_DEFAULT;
+  const isGoogleMaps = Platform.OS === 'android';
   const insets = useSafeAreaInsets();
 
   const [selectedRoutes, setSelectedRoutes] = useState<string[]>([]); // Start with no routes selected
@@ -447,12 +438,6 @@ export default function BtdMapScreen() {
     <View style={styles.root}>
       <MarkerImageFactory />
       <MapView
-        // See app/(tabs)/index.tsx's own comment on this same line - Apple
-        // Maps and Google Maps are different native classes, and switching
-        // `provider` at runtime without remounting crashes
-        // (insertObject:atIndex: beyond bounds) trying to reuse the old
-        // native view's queued mounting instructions on the new one.
-        key={provider === PROVIDER_GOOGLE ? 'google' : 'default'}
         ref={mapRef}
         provider={provider}
         style={StyleSheet.absoluteFillObject}

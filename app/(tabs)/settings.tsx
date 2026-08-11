@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { NativeScrollEvent, NativeSyntheticEvent, Platform, StyleSheet, View, TouchableOpacity, Switch, ScrollView } from 'react-native';
+import { NativeScrollEvent, NativeSyntheticEvent, StyleSheet, View, TouchableOpacity, Switch, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
@@ -20,12 +20,6 @@ type MenuItem = { href: string; icon: IconName; label: string; description: stri
 const MENU_SECTIONS: MenuItem[][] = [
   [
     { href: '/theme', icon: 'brightness-6', label: 'Theme', description: 'Light, dark, or follow system' },
-    // Android has no Apple Maps to choose between - it's always Google Maps
-    // there regardless, so this row (and the whole provider choice) only
-    // makes sense on iOS.
-    ...(Platform.OS === 'ios'
-      ? [{ href: '/map-provider', icon: 'map' as IconName, label: 'Map', description: 'Apple Maps or Google Maps' }]
-      : []),
     { href: '/accessibility', icon: 'accessibility-new', label: 'Accessibility', description: 'Icon/text size, contrast, and motion' },
   ],
   [

@@ -1,4 +1,5 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { router } from 'expo-router';
 import React from 'react';
 import { Linking, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -85,6 +86,18 @@ export default function BtdInfoScreen() {
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
       <View style={styles.header}>
+        {/* Info moved from its own tab to a More row - no longer reached by
+            just switching tabs, so it needs an explicit way back. */}
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backBtn}
+          activeOpacity={0.6}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          hitSlop={8}
+        >
+          <Text style={[styles.backArrow, { color: tint }]}>‹</Text>
+        </TouchableOpacity>
         <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">Brazos Transit District</Text>
         <Text style={[styles.pageSubtitle, { color: c.textSecondary }]}>
           Fixed routes serving Bryan & College Station.
@@ -225,6 +238,8 @@ export default function BtdInfoScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, paddingHorizontal: 20 },
   header: { marginTop: 16, marginBottom: 8 },
+  backBtn: { paddingBottom: 6 },
+  backArrow: { fontSize: 30, fontWeight: '300' },
   pageTitle: { fontSize: 28, fontWeight: '700' },
   pageSubtitle: { fontSize: 13, marginTop: 4, lineHeight: 18 },
   scrollContent: { paddingBottom: 32 },

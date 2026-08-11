@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Switch, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
@@ -54,29 +54,8 @@ export default function BtdMoreScreen() {
             <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
           </TouchableOpacity>
 
-          {/* Android has no Apple Maps to choose between - it's always
-              Google Maps there regardless, so this row only makes sense
-              on iOS. */}
-          {Platform.OS === 'ios' && (
-            <TouchableOpacity
-              style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}
-              onPress={() => router.push('/map-provider' as any)}
-              activeOpacity={0.6}
-              accessibilityRole="button"
-              accessibilityLabel="Map"
-              accessibilityHint="Apple Maps or Google Maps"
-            >
-              <MaterialIcons name="map" size={rowIconSize} color={tint} style={styles.rowIcon} />
-              <View style={styles.rowText}>
-                <Text style={[styles.rowLabel, { color: c.text }]}>Map</Text>
-                <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Apple Maps or Google Maps</Text>
-              </View>
-              <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
-            </TouchableOpacity>
-          )}
-
           <TouchableOpacity
-            style={styles.row}
+            style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}
             onPress={() => router.push('/accessibility' as any)}
             activeOpacity={0.6}
             accessibilityRole="button"
@@ -87,6 +66,24 @@ export default function BtdMoreScreen() {
             <View style={styles.rowText}>
               <Text style={[styles.rowLabel, { color: c.text }]}>Accessibility</Text>
               <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Icon/text size, contrast, and motion</Text>
+            </View>
+            <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
+          </TouchableOpacity>
+
+          {/* Moved here from its own tab, matching how AggieSpirit's Help
+              Guide is a More row rather than a tab. */}
+          <TouchableOpacity
+            style={styles.row}
+            onPress={() => router.push('/info' as any)}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel="Info"
+            accessibilityHint="Fares, tickets, and contact info"
+          >
+            <MaterialIcons name="info-outline" size={rowIconSize} color={tint} style={styles.rowIcon} />
+            <View style={styles.rowText}>
+              <Text style={[styles.rowLabel, { color: c.text }]}>Info</Text>
+              <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Fares, tickets, and contact info</Text>
             </View>
             <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
           </TouchableOpacity>
