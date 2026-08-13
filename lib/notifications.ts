@@ -3,6 +3,8 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+import type { LanguageCode } from '@/context/language-context';
+
 import { reportCrash } from './error-logging';
 
 // Shared with app/_layout.tsx (silent re-registration on launch) and
@@ -120,14 +122,19 @@ export function defaultRouteAlertConfig(route: string): RouteAlertConfig {
 }
 
 /**
- * Gets the push token and POSTs it (plus alert preferences, when given) to
- * the backend so it can target this device. Omitting `prefs` re-registers the
- * token without touching previously stored preferences. Returns the token
- * even if the server call fails so the caller can still log/display it.
+ * Gets the push token and POSTs it (plus alert preferences and language,
+ * when given) to the backend so it can target this device. Omitting `prefs`
+ * or `language` re-registers the token without touching that previously
+ * stored value. `language` only ever affects automated delay/reroute alert
+ * text server-side (see server/notification_translations.py) - any device
+ * that never sends one just gets English, same as before this existed.
+ * Returns the token even if the server call fails so the caller can still
+ * log/display it.
  */
 export async function registerPushTokenWithServer(
   apiBase: string,
   prefs?: AlertPrefs,
+  language?: LanguageCode,
 ): Promise<string | null> {
   const token = await getExpoPushToken();
   if (!token) return null;
@@ -140,6 +147,7 @@ export async function registerPushTokenWithServer(
         token,
         platform: Platform.OS,
         ...(prefs ? { routeConfigs: prefs.routeConfigs } : {}),
+        ...(language ? { language } : {}),
       }),
     });
     if (!res.ok) {

@@ -3,8 +3,10 @@ import { Animated, Dimensions, StyleSheet, TouchableOpacity, View } from 'react-
 
 import { ScaledText as Text } from '@/components/scaled-text';
 import { useAccessibility } from '@/context/accessibility-context';
+import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
 import { TOUR_STEPS, useTour } from '@/lib/tour-context';
+import { translate } from '@/lib/translations';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SPOTLIGHT_PADDING = 6;
@@ -36,6 +38,8 @@ export function TourOverlay() {
   const { step, stepIndex, rect, nextStep, skipTour } = useTour();
   const c = useThemeColors();
   const { reduceMotion } = useAccessibility();
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
   const tooltipOpacity = useRef(new Animated.Value(0)).current;
 
   // Reset to hidden the instant the step changes (before its target has
@@ -83,26 +87,26 @@ export function TourOverlay() {
             { backgroundColor: c.surface, borderColor: c.border, top: tooltipTop, bottom: tooltipBottom, opacity: tooltipOpacity },
           ]}
         >
-          <Text style={[styles.stepCount, { color: c.textSecondary }]}>{stepIndex + 1} of {TOUR_STEPS.length}</Text>
-          <Text style={[styles.title, { color: c.text }]}>{step.title}</Text>
-          <Text style={[styles.body, { color: c.textSecondary }]}>{step.body}</Text>
+          <Text style={[styles.stepCount, { color: c.textSecondary }]}>{stepIndex + 1} {t('of')} {TOUR_STEPS.length}</Text>
+          <Text style={[styles.title, { color: c.text }]}>{t(step.title)}</Text>
+          <Text style={[styles.body, { color: c.textSecondary }]}>{t(step.body)}</Text>
           <View style={styles.buttonRow}>
             <TouchableOpacity
               onPress={skipTour}
               accessibilityRole="button"
-              accessibilityLabel="Skip tour"
+              accessibilityLabel={t('Skip tour')}
               hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
             >
-              <Text style={[styles.skipText, { color: c.textSecondary }]}>Skip</Text>
+              <Text style={[styles.skipText, { color: c.textSecondary }]}>{t('Skip')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.nextButton, { backgroundColor: c.tint }]}
               onPress={nextStep}
               accessibilityRole="button"
-              accessibilityLabel={isLast ? 'Finish tour' : 'Next'}
+              accessibilityLabel={isLast ? t('Finish tour') : t('Next')}
               hitSlop={4}
             >
-              <Text style={styles.nextButtonText}>{isLast ? 'Finish' : 'Next'}</Text>
+              <Text style={styles.nextButtonText}>{isLast ? t('Finish') : t('Next')}</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>

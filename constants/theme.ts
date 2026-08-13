@@ -56,10 +56,7 @@ export const HighContrastColors = {
     surface: '#000000',
     surfaceAlt: '#242424',
     border: '#FFFFFF',
-    // #FF6B85 (moved to tintText) reads great as text on black but only
-    // hits 2.7:1 as a filled button behind white labels - this deeper red
-    // keeps ~5:1 with white text while still reading clearly on black.
-    tint: '#E00027',
+    tint: '#FF6B85',
     tintText: '#FF6B85',
     tabIconDefault: '#FFFFFF',
   },

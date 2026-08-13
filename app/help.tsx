@@ -4,7 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
+import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
+import { translate } from '@/lib/translations';
 
 const STOP_TYPES = [
   {
@@ -86,13 +88,15 @@ function Paragraphs({ text, color }: { text: string; color: string }) {
 
 export default function HelpScreen() {
   const c = useThemeColors();
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
-      <ScreenHeader title="Help Guide" />
+      <ScreenHeader title={t('Help Guide')} />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <Text style={[styles.sectionLabel, { color: c.textSecondary, marginTop: 28 }]} accessibilityRole="header">STOP TYPES</Text>
+        <Text style={[styles.sectionLabel, { color: c.textSecondary, marginTop: 28 }]} accessibilityRole="header">{t('STOP TYPES')}</Text>
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
           {STOP_TYPES.map((item, i) => (
             <View
@@ -111,14 +115,14 @@ export default function HelpScreen() {
                 />
               </View>
               <View style={styles.stopTextWrap}>
-                <Text style={[styles.stopTitle, { color: c.text }]}>{item.title}</Text>
-                <Text style={[styles.stopText, { color: c.textSecondary }]}>{item.text}</Text>
+                <Text style={[styles.stopTitle, { color: c.text }]}>{t(item.title)}</Text>
+                <Text style={[styles.stopText, { color: c.textSecondary }]}>{t(item.text)}</Text>
               </View>
             </View>
           ))}
         </View>
 
-        <Text style={[styles.sectionLabel, { color: c.textSecondary, marginTop: 10 }]} accessibilityRole="header">HOW TO RIDE</Text>
+        <Text style={[styles.sectionLabel, { color: c.textSecondary, marginTop: 10 }]} accessibilityRole="header">{t('HOW TO RIDE')}</Text>
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
           {RIDING_TIPS.map((item, i) => (
             <View
@@ -128,12 +132,12 @@ export default function HelpScreen() {
                 i < RIDING_TIPS.length - 1 && [styles.rowBorder, { borderBottomColor: c.border }],
               ]}
             >
-              <Text style={[styles.tipTitle, { color: c.text }]}>{item.title}</Text>
-              <Paragraphs text={item.body} color={c.textSecondary} />
+              <Text style={[styles.tipTitle, { color: c.text }]}>{t(item.title)}</Text>
+              <Paragraphs text={t(item.body)} color={c.textSecondary} />
               {!!item.tip && (
                 <View style={[styles.tipCallout, { backgroundColor: c.surfaceAlt, borderLeftColor: c.tint }]}>
-                  <Text style={[styles.tipCalloutLabel, { color: c.tintText }]}>TIP</Text>
-                  <Text style={[styles.tipCalloutText, { color: c.textSecondary }]}>{item.tip}</Text>
+                  <Text style={[styles.tipCalloutLabel, { color: c.tintText }]}>{t('TIP')}</Text>
+                  <Text style={[styles.tipCalloutText, { color: c.textSecondary }]}>{t(item.tip)}</Text>
                 </View>
               )}
             </View>

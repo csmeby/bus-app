@@ -7,21 +7,23 @@ import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
 import { LANGUAGE_NAMES, LanguageCode, useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
+import { translate } from '@/lib/translations';
 
 const LANGUAGE_OPTIONS: LanguageCode[] = ['en', 'es', 'zh', 'hi', 'vi', 'ko', 'ar', 'fr', 'tl', 'pt'];
 
 export default function LanguageScreen() {
   const c = useThemeColors();
   const { language, setLanguage } = useLanguage();
+  const t = (s: string) => translate(s, language);
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
-      <ScreenHeader title="Language" bottomMargin={16} />
+      <ScreenHeader title={t('Language')} bottomMargin={16} />
 
       <View style={[styles.noteCard, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
         <MaterialIcons name="info-outline" size={16} color={c.textSecondary} />
         <Text style={[styles.noteText, { color: c.textSecondary }]}>
-          Machine-translated. Wording may be imperfect or occasionally inaccurate - route names, live bus data, and service alerts always show in English.
+          {t('Machine-translated. Wording may be imperfect or occasionally inaccurate - route names, live bus data, and service alerts always show in English.')}
         </Text>
       </View>
 

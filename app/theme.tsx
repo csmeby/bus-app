@@ -5,6 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
 import { useAppTheme, useThemeColors, ThemeMode } from '@/context/theme-context';
+import { useLanguage } from '@/context/language-context';
+import { translate } from '@/lib/translations';
 
 const APPEARANCE_OPTIONS: { value: ThemeMode; label: string; description: string }[] = [
   { value: 'system', label: 'System', description: 'Follow device settings' },
@@ -15,10 +17,12 @@ const APPEARANCE_OPTIONS: { value: ThemeMode; label: string; description: string
 export default function ThemeScreen() {
   const c = useThemeColors();
   const { mode, setMode } = useAppTheme();
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
-      <ScreenHeader title="Theme" bottomMargin={24} />
+      <ScreenHeader title={t('Theme')} bottomMargin={24} />
 
       <View
         style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
@@ -34,13 +38,13 @@ export default function ThemeScreen() {
             onPress={() => setMode(opt.value)}
             activeOpacity={0.6}
             accessibilityRole="radio"
-            accessibilityLabel={opt.label}
-            accessibilityHint={opt.description}
+            accessibilityLabel={t(opt.label)}
+            accessibilityHint={t(opt.description)}
             accessibilityState={{ checked: mode === opt.value }}
           >
             <View style={styles.rowText}>
-              <Text style={[styles.rowLabel, { color: c.text }]}>{opt.label}</Text>
-              <Text style={[styles.rowDesc, { color: c.textSecondary }]}>{opt.description}</Text>
+              <Text style={[styles.rowLabel, { color: c.text }]}>{t(opt.label)}</Text>
+              <Text style={[styles.rowDesc, { color: c.textSecondary }]}>{t(opt.description)}</Text>
             </View>
             <View
               style={[

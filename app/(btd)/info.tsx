@@ -6,8 +6,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
 import { BTD_TINT } from '@/constants/btd-theme';
+import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { translate } from '@/lib/translations';
 
 const FIXED_ROUTE_FARES = [
   { label: 'General Public', price: '$1.00' },
@@ -81,6 +83,8 @@ export default function BtdInfoScreen() {
   const scheme = useColorScheme();
   const c = useThemeColors();
   const tint = BTD_TINT[scheme];
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
@@ -92,43 +96,43 @@ export default function BtdInfoScreen() {
           style={styles.backBtn}
           activeOpacity={0.6}
           accessibilityRole="button"
-          accessibilityLabel="Back"
+          accessibilityLabel={t('Back')}
           hitSlop={8}
         >
           <Text style={[styles.backArrow, { color: tint }]}>‹</Text>
         </TouchableOpacity>
-        <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">Brazos Transit District</Text>
+        <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">{t('Brazos Transit District')}</Text>
         <Text style={[styles.pageSubtitle, { color: c.textSecondary }]}>
-          Fixed routes serving Bryan & College Station.
+          {t('Fixed routes serving Bryan & College Station.')}
         </Text>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <Section title="FIXED ROUTE (ONE-WAY)">
+        <Section title={t('FIXED ROUTE (ONE-WAY)')}>
           {FIXED_ROUTE_FARES.map((f, i) => (
-            <FareRow key={f.label} {...f} isLast={i === FIXED_ROUTE_FARES.length - 1} />
+            <FareRow key={f.label} {...f} label={t(f.label)} price={t(f.price)} isLast={i === FIXED_ROUTE_FARES.length - 1} />
           ))}
         </Section>
         <Text style={[styles.footnote, { color: c.textSecondary }]}>
-          *Must present a valid student, faculty, or staff ID.
+          {t('*Must present a valid student, faculty, or staff ID.')}
         </Text>
 
-        <Section title="TICKETS & PASSES">
+        <Section title={t('TICKETS & PASSES')}>
           {TICKETS_AND_PASSES.map((f, i) => (
-            <FareRow key={f.label} {...f} isLast={i === TICKETS_AND_PASSES.length - 1} />
+            <FareRow key={f.label} {...f} label={t(f.label)} sub={t(f.sub)} isLast={i === TICKETS_AND_PASSES.length - 1} />
           ))}
         </Section>
 
-        <Section title="REDUCED PASSES">
+        <Section title={t('REDUCED PASSES')}>
           {REDUCED_PASSES.map((f, i) => (
-            <FareRow key={f.label} {...f} isLast={i === REDUCED_PASSES.length - 1} />
+            <FareRow key={f.label} {...f} label={t(f.label)} sub={f.sub ? t(f.sub) : f.sub} isLast={i === REDUCED_PASSES.length - 1} />
           ))}
         </Section>
         <Text style={[styles.footnote, { color: c.textSecondary }]}>
-          *S&D Punch Passes are only available to clients who have been issued either a S-Pass or D-Pass card.
+          {t('*S&D Punch Passes are only available to clients who have been issued either a S-Pass or D-Pass card.')}
         </Text>
 
-        <Section title="WHERE TO BUY TICKETS & PASSES">
+        <Section title={t('WHERE TO BUY TICKETS & PASSES')}>
           {PURCHASE_LOCATIONS.map((loc, i) => (
             <View
               key={loc.label}
@@ -143,9 +147,9 @@ export default function BtdInfoScreen() {
             onPress={() => Linking.openURL('tel:9797780607').catch(() => {})}
             accessibilityRole="link"
             accessibilityLabel="Purchase over the phone, 9 7 9. 7 7 8. 0 6 0 7"
-            accessibilityHint="Calls BTD"
+            accessibilityHint={t('Calls BTD')}
           >
-            <Text style={[styles.fareLabel, { color: c.text }]}>Purchase over the phone</Text>
+            <Text style={[styles.fareLabel, { color: c.text }]}>{t('Purchase over the phone')}</Text>
             <Text style={[styles.fareSub, { color: tint }]}>979-778-0607</Text>
           </TouchableOpacity>
         </Section>
@@ -153,16 +157,15 @@ export default function BtdInfoScreen() {
         <View style={[styles.hoursCard, { backgroundColor: tint + '14', borderColor: tint + '33' }]}>
           <MaterialIcons name="schedule" size={18} color={tint} />
           <View style={{ flex: 1 }}>
-            <Text style={[styles.fareLabel, { color: c.text }]}>Monday – Friday, 5:00 AM – 7:00 PM</Text>
-            <Text style={[styles.fareSub, { color: c.textSecondary }]}>Excluding holidays. No weekend service.</Text>
+            <Text style={[styles.fareLabel, { color: c.text }]}>{t('Monday – Friday, 5:00 AM – 7:00 PM')}</Text>
+            <Text style={[styles.fareSub, { color: c.textSecondary }]}>{t('Excluding holidays. No weekend service.')}</Text>
           </View>
         </View>
 
-        <Section title="MORE SERVICES">
+        <Section title={t('MORE SERVICES')}>
           <View style={styles.plainRow}>
             <Text style={[styles.fareSub, { color: c.textSecondary, lineHeight: 19 }]}>
-              For info about Senior/Disabled & Medicare passes, ADA Paratransit, and Demand & Response
-              service, visit{' '}
+              {t('For info about Senior/Disabled & Medicare passes, ADA Paratransit, and Demand & Response service, visit')}{' '}
               <Text
                 style={{ color: tint, fontWeight: '600' }}
                 onPress={() => Linking.openURL('https://www.btd.org').catch(() => {})}
@@ -170,7 +173,7 @@ export default function BtdInfoScreen() {
               >
                 btd.org
               </Text>{' '}
-              or call{' '}
+              {t('or call')}{' '}
               <Text
                 style={{ color: tint, fontWeight: '600' }}
                 onPress={() => Linking.openURL('tel:9797780607').catch(() => {})}
@@ -182,29 +185,29 @@ export default function BtdInfoScreen() {
           </View>
         </Section>
 
-        <Section title="RIDING POLICY">
+        <Section title={t('RIDING POLICY')}>
           {RIDING_RULES.map((rule, i) => (
             <View
               key={rule}
               style={[styles.ruleRow, i < RIDING_RULES.length - 1 && [styles.rowBorder, { borderBottomColor: c.border }]]}
             >
               <Text style={[styles.ruleBullet, { color: tint }]}>•</Text>
-              <Text style={[styles.ruleText, { color: c.textSecondary }]}>{rule}</Text>
+              <Text style={[styles.ruleText, { color: c.textSecondary }]}>{t(rule)}</Text>
             </View>
           ))}
         </Section>
 
-        <Section title="CONTACT & QUESTIONS">
+        <Section title={t('CONTACT & QUESTIONS')}>
           <TouchableOpacity
             style={[styles.contactRow, styles.rowBorder, { borderBottomColor: c.border }]}
             onPress={() => Linking.openURL('tel:9797780607').catch(() => {})}
             accessibilityRole="link"
             accessibilityLabel="Trip planning and general info, 9 7 9. 7 7 8. 0 6 0 7"
-            accessibilityHint="Calls BTD"
+            accessibilityHint={t('Calls BTD')}
           >
             <MaterialIcons name="phone" size={18} color={tint} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.fareLabel, { color: c.text }]}>Trip planning & general info</Text>
+              <Text style={[styles.fareLabel, { color: c.text }]}>{t('Trip planning & general info')}</Text>
               <Text style={[styles.fareSub, { color: tint }]}>979-778-0607</Text>
             </View>
           </TouchableOpacity>
@@ -213,18 +216,18 @@ export default function BtdInfoScreen() {
             onPress={() => Linking.openURL('https://www.btd.org').catch(() => {})}
             accessibilityRole="link"
             accessibilityLabel="Website, btd.org"
-            accessibilityHint="Opens in your browser"
+            accessibilityHint={t('Opens in your browser')}
           >
             <MaterialIcons name="language" size={18} color={tint} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.fareLabel, { color: c.text }]}>Website</Text>
+              <Text style={[styles.fareLabel, { color: c.text }]}>{t('Website')}</Text>
               <Text style={[styles.fareSub, { color: tint }]}>btd.org</Text>
             </View>
           </TouchableOpacity>
           <View style={styles.contactRow}>
             <MaterialIcons name="alternate-email" size={18} color={c.textSecondary} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.fareLabel, { color: c.text }]}>Social media</Text>
+              <Text style={[styles.fareLabel, { color: c.text }]}>{t('Social media')}</Text>
               <Text style={[styles.fareSub, { color: c.textSecondary }]}>@brazostransitdistrict</Text>
             </View>
           </View>

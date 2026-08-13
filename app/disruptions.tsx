@@ -12,9 +12,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
+import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
 import { API_BASE } from '@/lib/api-base';
 import { cachedJsonFetch } from '@/lib/local-cache';
+import { translate } from '@/lib/translations';
 
 type NewsItem = {
   newsId: number;
@@ -37,6 +39,8 @@ function formatNewsDate(iso: string): string {
 export default function DisruptionsScreen() {
   const c = useThemeColors();
   const { route: focusRoute } = useLocalSearchParams<{ route?: string }>();
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
   const [news, setNews] = useState<NewsItem[]>([]);
   const scrollRef = useRef<ScrollView>(null);
   const itemY = useRef<Record<number, number>>({});
@@ -66,11 +70,11 @@ export default function DisruptionsScreen() {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
-      <ScreenHeader title="Service Disruptions" bottomMargin={16} />
+      <ScreenHeader title={t('Service Disruptions')} bottomMargin={16} />
 
       <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {news.length === 0 ? (
-          <Text style={[styles.emptyText, { color: c.textSecondary }]}>No active service disruptions.</Text>
+          <Text style={[styles.emptyText, { color: c.textSecondary }]}>{t('No active service disruptions.')}</Text>
         ) : (
           news.map(item => {
             const isFocused = !!focusRoute && (item.affectsAllRoutes || item.routes.includes(focusRoute));
@@ -87,7 +91,7 @@ export default function DisruptionsScreen() {
                 activeOpacity={0.7}
                 accessibilityRole="link"
                 accessibilityLabel={`${item.title}. Affects ${item.affectsAllRoutes ? 'all routes' : `route${item.routes.length > 1 ? 's' : ''} ${item.routes.join(', ')}`}. ${item.summary}`}
-                accessibilityHint="Opens the full post in your browser"
+                accessibilityHint={t('Opens the full post in your browser')}
               >
                 <View style={styles.newsCardHeader}>
                   <MaterialIcons name="warning-amber" size={16} color="#EF4444" />
@@ -97,7 +101,7 @@ export default function DisruptionsScreen() {
                 <View style={styles.newsRoutesRow}>
                   {item.affectsAllRoutes ? (
                     <View style={[styles.newsRoutePill, { backgroundColor: c.tint }]}>
-                      <Text style={styles.newsRoutePillText}>All Routes</Text>
+                      <Text style={styles.newsRoutePillText}>{t('All Routes')}</Text>
                     </View>
                   ) : (
                     item.routes.map(r => (

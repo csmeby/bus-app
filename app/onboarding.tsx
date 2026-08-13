@@ -28,7 +28,7 @@ export default function OnboardingScreen() {
   }, [logoOpacity, titleOpacity, startTour]);
 
   return (
-    <View style={[styles.splashRoot, { backgroundColor: BRAND_MAROON }]}>
+    <View style={[styles.splashRoot, { backgroundColor: "#58121d" }]}>
       <View style={{ alignItems: 'center' }}>
         <Animated.Image
           source={require('../assets/images/icon.png')}

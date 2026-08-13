@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { NativeScrollEvent, NativeSyntheticEvent, Platform, StyleSheet, View, TouchableOpacity, Switch, ScrollView } from 'react-native';
+import { NativeScrollEvent, NativeSyntheticEvent, StyleSheet, View, TouchableOpacity, Switch, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
@@ -18,18 +18,9 @@ type IconName = React.ComponentProps<typeof MaterialIcons>['name'];
 
 type MenuItem = { href: string; icon: IconName; label: string; description: string; tourId?: TourStepId };
 
-// Grouped into cards: appearance on its own, then the app-preference screens.
 const MENU_SECTIONS: MenuItem[][] = [
   [
-    { href: '/theme', icon: 'brightness-6', label: 'Theme', description: 'Light, dark, or follow system' },
-    { href: '/language', icon: 'translate', label: 'Language', description: 'Choose your language' },
-    // Android has no Apple Maps to choose between - it's always Google Maps
-    // there regardless, so this row (and the whole provider choice) only
-    // makes sense on iOS.
-    ...(Platform.OS === 'ios'
-      ? [{ href: '/map-provider', icon: 'map' as IconName, label: 'Map', description: 'Apple Maps or Google Maps' }]
-      : []),
-    { href: '/accessibility', icon: 'accessibility-new', label: 'Accessibility', description: 'Icon/text size, contrast, and motion' },
+    { href: '/more-settings', icon: 'settings', label: 'Settings', description: 'Theme, Language, and Accessibility' },
   ],
   [
     { href: '/favorites', icon: 'star-outline', label: 'Favorite Routes', description: 'Pin routes to the top of the selector', tourId: 'favorites' },
@@ -58,9 +49,6 @@ export default function MoreScreen() {
     });
   }, []);
 
-  // Lets the tour scroll a target (e.g. the BTD card, which otherwise sits
-  // low enough to land behind the tab bar) toward the middle of the screen
-  // before measuring it - see registerScrollView in lib/tour-context.tsx.
   useEffect(() => {
     registerScrollView({ ref: scrollRef, getOffsetY: () => scrollY.current });
     return () => registerScrollView(null);
@@ -126,10 +114,6 @@ export default function MoreScreen() {
         </View>
       ))}
 
-      {/* Unit codes — the inferred driver-shift letter (Alpha, Bravo, ...)
-          shown on a bus's map callout. Meaningful only to transit staff
-          checking their own assignment, never to a rider, so this defaults
-          off and lives behind an explicit opt-in rather than always showing. */}
       <View style={[styles.card, styles.spacedCard, { backgroundColor: c.surface, borderColor: c.border }]}>
         <View style={styles.row}>
           <MaterialIcons name="badge" size={rowIconSize} color={c.tintText} style={styles.rowIcon} />
@@ -148,10 +132,6 @@ export default function MoreScreen() {
         </View>
       </View>
 
-      {/* Switch transit network — a separate bus service in town (Brazos
-          Transit District), kept as its own app mode rather than mixed into
-          this tab bar, per how different the two systems are (no live
-          tracking, fixed schedules only). */}
       <TourTarget id="btd" style={[styles.card, styles.spacedCard, { backgroundColor: c.surface, borderColor: c.border }]}>
         <TouchableOpacity
           style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}

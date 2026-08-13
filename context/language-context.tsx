@@ -34,6 +34,16 @@ const LanguageContext = createContext<LanguageContextValue>({
 
 const PREFS_KEY = 'language-pref';
 
+// For spots outside the component tree (or above LanguageProvider, like
+// app/_layout.tsx's silent push-token re-registration) that need the current
+// language without being able to call useLanguage(). Same validation as the
+// provider's own load, so an unrecognized/corrupt stored value can't leak
+// through as a bogus language code.
+export async function getStoredLanguage(): Promise<LanguageCode> {
+  const value = await AsyncStorage.getItem(PREFS_KEY);
+  return value && value in LANGUAGE_NAMES ? (value as LanguageCode) : 'en';
+}
+
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguageState] = useState<LanguageCode>('en');
 

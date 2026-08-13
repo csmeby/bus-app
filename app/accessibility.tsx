@@ -10,7 +10,9 @@ import {
   TextSize,
   useAccessibility,
 } from '@/context/accessibility-context';
+import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
+import { translate } from '@/lib/translations';
 
 const ICON_SIZES: IconSize[] = ['xs', 'small', 'default', 'large', 'xl'];
 const TEXT_SIZES: TextSize[] = ['xs', 'small', 'default', 'large', 'xl'];
@@ -38,6 +40,7 @@ function SliderRow<T extends string>({
   onChange,
   labels,
   c,
+  t,
 }: {
   label: string;
   options: T[];
@@ -45,6 +48,7 @@ function SliderRow<T extends string>({
   onChange: (v: T) => void;
   labels: Record<T, string>;
   c: ReturnType<typeof useThemeColors>;
+  t: (s: string) => string;
 }) {
   const currentIndex = options.indexOf(value);
 
@@ -52,7 +56,7 @@ function SliderRow<T extends string>({
     <View style={styles.sliderContainer}>
       <View style={styles.sliderHeader}>
         <Text style={[styles.sliderValueText, { color: c.textSecondary }]}>
-          {labels[value]}
+          {t(labels[value])}
         </Text>
       </View>
       <Slider
@@ -65,12 +69,12 @@ function SliderRow<T extends string>({
         minimumTrackTintColor={c.tintText}
         maximumTrackTintColor={c.border}
         thumbTintColor={c.tintText}
-        accessibilityLabel={label}
-        accessibilityValue={{ min: 0, max: options.length - 1, now: currentIndex >= 0 ? currentIndex : 2, text: labels[value] }}
+        accessibilityLabel={t(label)}
+        accessibilityValue={{ min: 0, max: options.length - 1, now: currentIndex >= 0 ? currentIndex : 2, text: t(labels[value]) }}
       />
       <View style={styles.sliderLabelsRow}>
-        <Text style={[styles.rangeLabel, { color: c.textSecondary }]}>Min</Text>
-        <Text style={[styles.rangeLabel, { color: c.textSecondary }]}>Max</Text>
+        <Text style={[styles.rangeLabel, { color: c.textSecondary }]}>{t('Min')}</Text>
+        <Text style={[styles.rangeLabel, { color: c.textSecondary }]}>{t('Max')}</Text>
       </View>
     </View>
   );
@@ -88,69 +92,73 @@ export default function AccessibilityScreen() {
     reduceMotion,
     setReduceMotion,
   } = useAccessibility();
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
-      <ScreenHeader title="Accessibility" bottomMargin={24} />
+      <ScreenHeader title={t('Accessibility')} bottomMargin={24} />
 
       <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
         <View style={[styles.section, styles.rowBorder, { borderBottomColor: c.border }]}>
-          <Text style={[styles.sectionLabel, { color: c.text }]}>Icon Size</Text>
+          <Text style={[styles.sectionLabel, { color: c.text }]}>{t('Icon Size')}</Text>
           <Text style={[styles.sectionDesc, { color: c.textSecondary }]}>
-            Scales map markers and tab bar icons. Changing this will close any routes you have open on the map.
+            {t('Scales map markers and tab bar icons. Changing this will close any routes you have open on the map.')}
           </Text>
           <SliderRow
-            label="Icon size"
+            label="Icon Size"
             options={ICON_SIZES}
             value={iconSize}
             onChange={setIconSize}
             labels={ICON_LABELS}
             c={c}
+            t={t}
           />
         </View>
 
         <View style={[styles.section, styles.rowBorder, { borderBottomColor: c.border }]}>
-          <Text style={[styles.sectionLabel, { color: c.text }]}>Text Size</Text>
+          <Text style={[styles.sectionLabel, { color: c.text }]}>{t('Text Size')}</Text>
           <Text style={[styles.sectionDesc, { color: c.textSecondary }]}>
-            Scales text in the More menu and key screens.
+            {t('Scales text in the More menu and key screens.')}
           </Text>
           <SliderRow
-            label="Text size"
+            label="Text Size"
             options={TEXT_SIZES}
             value={textSize}
             onChange={setTextSize}
             labels={TEXT_LABELS}
             c={c}
+            t={t}
           />
         </View>
 
         <View style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}>
           <View style={styles.rowText}>
-            <Text style={[styles.rowLabel, { color: c.text }]}>High Contrast</Text>
+            <Text style={[styles.rowLabel, { color: c.text }]}>{t('High Contrast')}</Text>
             <Text style={[styles.rowDesc, { color: c.textSecondary }]}>
-              Stronger contrast between text, backgrounds, and borders.
+              {t('Stronger contrast between text, backgrounds, and borders.')}
             </Text>
           </View>
           <Switch
             value={highContrast}
             onValueChange={setHighContrast}
-            accessibilityLabel="High contrast"
-            accessibilityHint="Uses a stronger-contrast color palette throughout the app"
+            accessibilityLabel={t('High Contrast')}
+            accessibilityHint={t('Uses a stronger-contrast color palette throughout the app')}
           />
         </View>
 
         <View style={styles.row}>
           <View style={styles.rowText}>
-            <Text style={[styles.rowLabel, { color: c.text }]}>Reduce Motion</Text>
+            <Text style={[styles.rowLabel, { color: c.text }]}>{t('Reduce Motion')}</Text>
             <Text style={[styles.rowDesc, { color: c.textSecondary }]}>
-              Shortens or removes animations like the tour and panel slides.
+              {t('Shortens or removes animations like the tour and panel slides.')}
             </Text>
           </View>
           <Switch
             value={reduceMotion}
             onValueChange={setReduceMotion}
-            accessibilityLabel="Reduce motion"
-            accessibilityHint="Shortens or removes the app's animations"
+            accessibilityLabel={t('Reduce Motion')}
+            accessibilityHint={t("Shortens or removes the app's animations")}
           />
         </View>
       </View>

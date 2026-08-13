@@ -11,9 +11,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
+import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
 import { API_BASE } from '@/lib/api-base';
 import { cachedJsonFetch } from '@/lib/local-cache';
+import { translate } from '@/lib/translations';
 
 const LEGEND_ITEMS = [
   { category: 'no_service', color: '#EF4444', label: 'No Service' },
@@ -65,6 +67,8 @@ type GridCell = {
 
 export default function CalendarScreen() {
   const c = useThemeColors();
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
 
   const [viewDate, setViewDate] = useState(() => {
     const d = new Date();
@@ -122,7 +126,7 @@ export default function CalendarScreen() {
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">Calendar</Text>
+        <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">{t('Calendar')}</Text>
 
         <View style={styles.monthHeader}>
           <TouchableOpacity
@@ -130,7 +134,7 @@ export default function CalendarScreen() {
             style={styles.navBtn}
             activeOpacity={0.6}
             accessibilityRole="button"
-            accessibilityLabel="Previous month"
+            accessibilityLabel={t('Previous month')}
             hitSlop={8}
           >
             <Text style={[styles.navArrow, { color: c.tintText }]}>‹</Text>
@@ -143,7 +147,7 @@ export default function CalendarScreen() {
             style={styles.navBtn}
             activeOpacity={0.6}
             accessibilityRole="button"
-            accessibilityLabel="Next month"
+            accessibilityLabel={t('Next month')}
             hitSlop={8}
           >
             <Text style={[styles.navArrow, { color: c.tintText }]}>›</Text>
@@ -155,7 +159,7 @@ export default function CalendarScreen() {
             <Text
               key={i}
               style={[styles.weekDayLabel, { color: c.textSecondary }]}
-              accessibilityLabel={WEEKDAY_FULL_NAMES[i]}
+              accessibilityLabel={t(WEEKDAY_FULL_NAMES[i])}
             >
               {wd}
             </Text>
@@ -180,7 +184,7 @@ export default function CalendarScreen() {
                   activeOpacity={0.7}
                   accessibilityRole="button"
                   accessibilityLabel={`${dateLabel}${isToday ? ', today' : ''}${info ? `, ${info.primaryLabel}` : ''}`}
-                  accessibilityHint={info ? 'Shows this day\'s transit schedule changes' : undefined}
+                  accessibilityHint={info ? t('Shows this day\'s transit schedule changes') : undefined}
                   accessibilityState={{ disabled: !info }}
                 >
                   {info?.secondaryColor && !isPast ? (
@@ -228,7 +232,7 @@ export default function CalendarScreen() {
           {LEGEND_ITEMS.map(item => (
             <View key={item.category} style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-              <Text style={[styles.legendLabel, { color: c.textSecondary }]}>{item.label}</Text>
+              <Text style={[styles.legendLabel, { color: c.textSecondary }]}>{t(item.label)}</Text>
             </View>
           ))}
         </View>
@@ -240,7 +244,7 @@ export default function CalendarScreen() {
           activeOpacity={1}
           onPress={() => setSelectedDay(null)}
           accessibilityRole="button"
-          accessibilityLabel="Dismiss"
+          accessibilityLabel={t('Dismiss')}
         />
         <View style={[styles.dayModalCard, { backgroundColor: c.surface }]}>
           <Text style={[styles.dayModalDate, { color: c.text }]} accessibilityRole="header">
@@ -267,7 +271,7 @@ export default function CalendarScreen() {
               ))
             ) : (
               <Text style={[styles.noEventsText, { color: c.textSecondary }]}>
-                No scheduled transit changes today - normal posted hours apply.
+                {t('No scheduled transit changes today - normal posted hours apply.')}
               </Text>
             )}
           </ScrollView>
@@ -276,7 +280,7 @@ export default function CalendarScreen() {
             style={[styles.closeModalBtn, { backgroundColor: c.tint }]}
             accessibilityRole="button"
           >
-            <Text style={styles.closeModalBtnText}>Close</Text>
+            <Text style={styles.closeModalBtnText}>{t('Close')}</Text>
           </TouchableOpacity>
         </View>
       </Modal>

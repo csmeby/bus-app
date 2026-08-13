@@ -13,7 +13,7 @@ import { DEFAULT_LAUNCH_BTD_KEY, ONBOARDING_COMPLETE_KEY } from '@/lib/onboardin
 import { TourProvider } from '@/lib/tour-context';
 import { AccessibilityProvider } from '@/context/accessibility-context';
 import { FavoritesProvider } from '@/context/favorites-context';
-import { LanguageProvider } from '@/context/language-context';
+import { getStoredLanguage, LanguageProvider } from '@/context/language-context';
 import { MapProviderProvider } from '@/context/map-provider-context';
 import { ThemeProvider, useAppTheme } from '@/context/theme-context';
 import { UnitCodesProvider } from '@/context/unit-codes-context';
@@ -54,6 +54,7 @@ function RootLayoutInner() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(btd)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+        <Stack.Screen name="more-settings" options={{ headerShown: false }} />
         <Stack.Screen name="theme" options={{ headerShown: false }} />
         <Stack.Screen name="language" options={{ headerShown: false }} />
         <Stack.Screen name="map-provider" options={{ headerShown: false }} />
@@ -80,7 +81,8 @@ export default function RootLayout() {
       // app is backgrounded or closed.
       const enabled = await AsyncStorage.getItem(NOTIFICATIONS_ENABLED_KEY);
       if (enabled === 'true') {
-        registerPushTokenWithServer(API_BASE).catch(() => {});
+        const language = await getStoredLanguage();
+        registerPushTokenWithServer(API_BASE, undefined, language).catch(() => {});
         return;
       }
       // `enabled` is null only on a genuinely first-ever launch (the
@@ -94,7 +96,8 @@ export default function RootLayout() {
         const granted = await requestNotificationPermission();
         await AsyncStorage.setItem(NOTIFICATIONS_ENABLED_KEY, granted ? 'true' : 'false');
         if (granted) {
-          registerPushTokenWithServer(API_BASE).catch(() => {});
+          const language = await getStoredLanguage();
+          registerPushTokenWithServer(API_BASE, undefined, language).catch(() => {});
         }
       }
     })();

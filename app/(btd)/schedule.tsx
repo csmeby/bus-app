@@ -5,8 +5,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
 import { BTD_TINT } from '@/constants/btd-theme';
+import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { translate } from '@/lib/translations';
 import btdRoutesRaw from '../../btd_routes.json';
 
 type BtdStopEntry = { key: string; label: string; number: number; times: string[] };
@@ -86,6 +88,8 @@ export default function BtdScheduleScreen() {
   const c = useThemeColors();
   const tint = BTD_TINT[scheme];
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
 
   const toggle = (routeNum: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -95,9 +99,9 @@ export default function BtdScheduleScreen() {
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
       <View style={styles.header}>
-        <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">Schedule</Text>
+        <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">{t('Schedule')}</Text>
         <Text style={[styles.pageSubtitle, { color: c.textSecondary }]}>
-          Time points repeat every hour, on the same minutes, all day.
+          {t('Time points repeat every hour, on the same minutes, all day.')}
         </Text>
       </View>
 
@@ -105,12 +109,12 @@ export default function BtdScheduleScreen() {
         <View style={[styles.hoursCard, { backgroundColor: tint + '14', borderColor: tint + '33' }]}>
           <MaterialIcons name="schedule" size={18} color={tint} />
           <View style={{ flex: 1 }}>
-            <Text style={[styles.hoursLabel, { color: c.text }]}>Monday - Friday, 5:00 AM - 7:00 PM</Text>
-            <Text style={[styles.hoursSub, { color: c.textSecondary }]}>Excluding holidays. No weekend service.</Text>
+            <Text style={[styles.hoursLabel, { color: c.text }]}>{t('Monday - Friday, 5:00 AM - 7:00 PM')}</Text>
+            <Text style={[styles.hoursSub, { color: c.textSecondary }]}>{t('Excluding holidays. No weekend service.')}</Text>
           </View>
         </View>
 
-        <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>ROUTES</Text>
+        <Text style={[styles.sectionLabel, { color: c.textSecondary }]}>{t('ROUTES')}</Text>
         {ALL_BTD_ROUTES.map(routeNum => {
           const route = btdRoutes[routeNum];
           const isOpen = !!expanded[routeNum];

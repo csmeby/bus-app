@@ -90,9 +90,14 @@ export default function NotificationsScreen() {
       }
       if (enabledRaw === 'true') {
         setEnabled(true);
-        registerPushTokenWithServer(API_BASE);
+        registerPushTokenWithServer(API_BASE, undefined, language);
       }
     })();
+    // Mount-only load of persisted prefs/enabled state - language is read
+    // from context (already resolved by the time this screen is reachable),
+    // not something this effect should re-run for if it changes later while
+    // the screen happens to stay mounted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Persist + push prefs to the server, debounced so rapid typing/tapping
@@ -103,11 +108,11 @@ export default function NotificationsScreen() {
       AsyncStorage.setItem(PREFS_KEY, JSON.stringify(next)).catch(() => {});
       if (syncTimer.current) clearTimeout(syncTimer.current);
       syncTimer.current = setTimeout(() => {
-        registerPushTokenWithServer(API_BASE, next).catch(() => {});
+        registerPushTokenWithServer(API_BASE, next, language).catch(() => {});
       }, 1500);
       return next;
     });
-  }, []);
+  }, [language]);
 
   const onToggle = async (value: boolean) => {
     setBusy(true);
@@ -119,7 +124,7 @@ export default function NotificationsScreen() {
           setBusy(false);
           return;
         }
-        await registerPushTokenWithServer(API_BASE, prefs);
+        await registerPushTokenWithServer(API_BASE, prefs, language);
         setEnabled(true);
         await AsyncStorage.setItem(NOTIFICATIONS_ENABLED_KEY, 'true');
       } else {
@@ -204,18 +209,9 @@ export default function NotificationsScreen() {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
-      <ScreenHeader title="Notifications" />
+      <ScreenHeader title={t('Notifications')} />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
-        {language !== 'en' && (
-          <View style={[styles.noteCard, { backgroundColor: c.surfaceAlt, borderColor: c.border, marginTop: 0, marginBottom: 14 }]}>
-            <MaterialIcons name="info-outline" size={16} color={c.textSecondary} />
-            <Text style={[styles.noteText, { color: c.textSecondary }]}>
-              Notifications are only available in English right now.
-            </Text>
-          </View>
-        )}
-
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
           <View style={styles.row}>
             <View style={styles.rowText}>

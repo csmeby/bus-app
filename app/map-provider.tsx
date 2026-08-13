@@ -4,8 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
+import { useLanguage } from '@/context/language-context';
 import { useMapProvider, type MapProviderPref } from '@/context/map-provider-context';
 import { useThemeColors } from '@/context/theme-context';
+import { translate } from '@/lib/translations';
 
 const PROVIDER_OPTIONS: { value: MapProviderPref; label: string; description: string }[] = [
   { value: 'apple', label: 'Apple Maps', description: 'Default' },
@@ -15,10 +17,12 @@ const PROVIDER_OPTIONS: { value: MapProviderPref; label: string; description: st
 export default function MapProviderScreen() {
   const c = useThemeColors();
   const { mapProvider, setMapProvider } = useMapProvider();
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
-      <ScreenHeader title="Map" bottomMargin={24} />
+      <ScreenHeader title={t('Map')} bottomMargin={24} />
 
       <View
         style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
@@ -34,13 +38,13 @@ export default function MapProviderScreen() {
             onPress={() => setMapProvider(opt.value)}
             activeOpacity={0.6}
             accessibilityRole="radio"
-            accessibilityLabel={opt.label}
-            accessibilityHint={opt.description}
+            accessibilityLabel={t(opt.label)}
+            accessibilityHint={t(opt.description)}
             accessibilityState={{ checked: mapProvider === opt.value }}
           >
             <View style={styles.rowText}>
-              <Text style={[styles.rowLabel, { color: c.text }]}>{opt.label}</Text>
-              <Text style={[styles.rowDesc, { color: c.textSecondary }]}>{opt.description}</Text>
+              <Text style={[styles.rowLabel, { color: c.text }]}>{t(opt.label)}</Text>
+              <Text style={[styles.rowDesc, { color: c.textSecondary }]}>{t(opt.description)}</Text>
             </View>
             <View
               style={[
