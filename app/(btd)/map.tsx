@@ -11,16 +11,20 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT, Polyline } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_DEFAULT, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BTD_TINT } from '@/constants/btd-theme';
 import { DARK_MAP_STYLE } from '@/constants/theme';
 import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
+import { useLanguage } from '@/context/language-context';
+import { springOrJump } from '@/lib/motion';
+import { GOOGLE_MAPS_IOS_READY, useMapProvider } from '@/context/map-provider-context';
 import { useThemeColors } from '@/context/theme-context';
 import { ScaledText as Text } from '@/components/scaled-text';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { MarkerImageFactory, useMarkerImage } from '@/lib/marker-image-factory';
+import { translate } from '@/lib/translations';
 import btdRoutesRaw from '../../btd_routes.json';
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -151,12 +155,22 @@ export default function BtdMapScreen() {
   const scheme = useColorScheme();
   const c = useThemeColors();
   const tint = BTD_TINT[scheme];
-  const { iconSize } = useAccessibility();
+  const { iconSize, reduceMotion } = useAccessibility();
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
   const iconScale = ICON_SCALE[iconSize];
-  // See app/(tabs)/index.tsx's own comment on this same pattern - iOS only
-  // ever uses Apple Maps now (the Google Maps provider option was dropped).
-  const provider = PROVIDER_DEFAULT;
-  const isGoogleMaps = Platform.OS === 'android';
+  // See app/(tabs)/index.tsx's own comment on this same pattern.
+  const { mapProvider } = useMapProvider();
+  const provider = Platform.OS === 'ios' && mapProvider === 'google' && GOOGLE_MAPS_IOS_READY ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
+  // tracksViewChanges is a dead prop on the Google Maps renderer under the
+  // New Architecture - a marker frozen at `false` never gets a chance to
+  // re-snapshot its custom child view if the initial mount-time snapshot
+  // races the view's own layout, silently leaving no icon at all. See
+  // app/(tabs)/index.tsx's StopMarker for the full writeup.
+  // NOT just `provider === PROVIDER_GOOGLE` - see app/(tabs)/index.tsx's own
+  // comment on this exact line: that check alone is always false on
+  // Android, since `provider` only becomes PROVIDER_GOOGLE on iOS above.
+  const isGoogleMaps = Platform.OS === 'android' || provider === PROVIDER_GOOGLE;
   const insets = useSafeAreaInsets();
 
   const [selectedRoutes, setSelectedRoutes] = useState<string[]>([]); // Start with no routes selected
@@ -292,7 +306,7 @@ export default function BtdMapScreen() {
   const panelBorder = scheme === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
 
   const routeLabel = selectedRoutes.length === 0
-    ? 'No routes selected'
+    ? t('No routes selected')
     : allSelected
       ? 'All Routes'
       : selectedRoutes.length === 1
@@ -425,19 +439,23 @@ export default function BtdMapScreen() {
   const openStop = useCallback((stop: MergedStop) => {
     setNowTick(Date.now()); // fresh "now" the moment it opens, not up to 30s stale
     setSelectedStop(stop);
-    Animated.spring(stopSheetAnim, { toValue: 1, useNativeDriver: true, tension: 80, friction: 10 }).start();
-  }, [stopSheetAnim]);
-  
+    springOrJump(stopSheetAnim, 1, { tension: 80, friction: 10, useNativeDriver: true }, reduceMotion);
+  }, [stopSheetAnim, reduceMotion]);
+
   const closeStop = useCallback(() => {
-    Animated.spring(stopSheetAnim, { toValue: 0, useNativeDriver: true, tension: 80, friction: 10 }).start(() =>
-      setSelectedStop(null)
-    );
-  }, [stopSheetAnim]);
+    springOrJump(stopSheetAnim, 0, { tension: 80, friction: 10, useNativeDriver: true }, reduceMotion, () => setSelectedStop(null));
+  }, [stopSheetAnim, reduceMotion]);
 
   return (
     <View style={styles.root}>
       <MarkerImageFactory />
       <MapView
+        // See app/(tabs)/index.tsx's own comment on this same line - Apple
+        // Maps and Google Maps are different native classes, and switching
+        // `provider` at runtime without remounting crashes
+        // (insertObject:atIndex: beyond bounds) trying to reuse the old
+        // native view's queued mounting instructions on the new one.
+        key={provider === PROVIDER_GOOGLE ? 'google' : 'default'}
         ref={mapRef}
         provider={provider}
         style={StyleSheet.absoluteFillObject}
@@ -446,6 +464,7 @@ export default function BtdMapScreen() {
         initialRegion={{ latitude: 30.625, longitude: -96.32, latitudeDelta: 0.16, longitudeDelta: 0.16 }}
         onPress={closeStop}
         onMapReady={() => setMapReady(true)}
+        accessibilityLabel="Map showing BTD bus routes and stops"
       >
         {/* Nothing below mounts until the native map view itself is ready -
             see mapReady above for why. */}
@@ -501,7 +520,7 @@ export default function BtdMapScreen() {
           <Text style={[styles.panelTitle, { color: c.text }]} accessibilityRole="header">Brazos Transit District</Text>
           <View style={[styles.serviceBadge, { backgroundColor: isWeekday ? tint + '1A' : c.surfaceAlt }]}>
             <Text style={[styles.serviceBadgeText, { color: isWeekday ? tint : c.textSecondary }]}>
-              {isWeekday ? 'Running Today' : 'No Weekend Service'}
+              {isWeekday ? t('Running Today') : t('No Weekend Service')}
             </Text>
           </View>
         </View>
@@ -525,7 +544,7 @@ export default function BtdMapScreen() {
       </View>
 
       {/* ── Route selector modal ───────────────────────────────────────────── */}
-      <Modal visible={dropdownVisible} transparent animationType="slide" onRequestClose={() => setDropdownVisible(false)}>
+      <Modal visible={dropdownVisible} transparent animationType={reduceMotion ? 'none' : 'slide'} onRequestClose={() => setDropdownVisible(false)}>
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
@@ -794,7 +813,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 4,
   },
-  serviceBadgeDot: { width: 6, height: 6, borderRadius: 3 },
   serviceBadgeText: { fontSize: 11, fontWeight: '700' },
   panelMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6, marginBottom: 10 },
   panelSubtitle: { fontSize: 12, flexShrink: 1 },

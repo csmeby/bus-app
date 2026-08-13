@@ -131,8 +131,9 @@ export default function CalendarScreen() {
             activeOpacity={0.6}
             accessibilityRole="button"
             accessibilityLabel="Previous month"
+            hitSlop={8}
           >
-            <Text style={[styles.navArrow, { color: c.tint }]}>‹</Text>
+            <Text style={[styles.navArrow, { color: c.tintText }]}>‹</Text>
           </TouchableOpacity>
           <Text style={[styles.monthTitle, { color: c.text }]} accessibilityRole="header">
             {viewDate.toLocaleDateString([], { month: 'long', year: 'numeric' })}
@@ -143,8 +144,9 @@ export default function CalendarScreen() {
             activeOpacity={0.6}
             accessibilityRole="button"
             accessibilityLabel="Next month"
+            hitSlop={8}
           >
-            <Text style={[styles.navArrow, { color: c.tint }]}>›</Text>
+            <Text style={[styles.navArrow, { color: c.tintText }]}>›</Text>
           </TouchableOpacity>
         </View>
 
@@ -161,7 +163,7 @@ export default function CalendarScreen() {
         </View>
 
         {loading ? (
-          <ActivityIndicator color={c.tint} style={{ marginTop: 40 }} />
+          <ActivityIndicator color={c.tintText} style={{ marginTop: 40 }} />
         ) : (
           <View style={styles.grid}>
             {gridCells.map(cell => {
@@ -190,7 +192,7 @@ export default function CalendarScreen() {
                       style={[
                         styles.dayCellInner,
                         { opacity: cell.inMonth ? 1 : 0.4 },
-                        isToday && { borderWidth: 2, borderColor: c.tint },
+                        isToday && { borderWidth: 2, borderColor: c.tintText },
                       ]}
                     >
                       <Text style={[styles.dayNumber, { color: '#fff' }]}>{cell.date.getDate()}</Text>
@@ -203,7 +205,7 @@ export default function CalendarScreen() {
                           backgroundColor:
                             info && !isPast ? info.primaryColor + (cell.inMonth ? '' : '66') : 'transparent',
                         },
-                        isToday && { borderWidth: 2, borderColor: c.tint },
+                        isToday && { borderWidth: 2, borderColor: c.tintText },
                       ]}
                     >
                       <Text

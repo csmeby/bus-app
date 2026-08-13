@@ -19,7 +19,7 @@ export function ScreenHeader({ title, bottomMargin = 20 }: { title: string; bott
         accessibilityLabel="Back"
         hitSlop={8}
       >
-        <Text style={[styles.backArrow, { color: c.tint }]}>‹</Text>
+        <Text style={[styles.backArrow, { color: c.tintText }]}>‹</Text>
       </TouchableOpacity>
       <Text style={[styles.pageTitle, { color: c.text }]} numberOfLines={1} accessibilityRole="header">{title}</Text>
     </View>

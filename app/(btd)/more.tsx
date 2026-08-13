@@ -8,9 +8,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScaledText as Text } from '@/components/scaled-text';
 import { BTD_TINT } from '@/constants/btd-theme';
 import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
+import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { DEFAULT_LAUNCH_BTD_KEY } from '@/lib/onboarding';
+import { translate } from '@/lib/translations';
 
 export default function BtdMoreScreen() {
   const scheme = useColorScheme();
@@ -20,6 +22,8 @@ export default function BtdMoreScreen() {
   const iconScale = ICON_SCALE[iconSize];
   const rowIconSize = Math.round(22 * iconScale);
   const [launchIntoBtd, setLaunchIntoBtd] = useState(false);
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
 
   useEffect(() => {
     AsyncStorage.getItem(DEFAULT_LAUNCH_BTD_KEY).then(v => {
@@ -43,8 +47,8 @@ export default function BtdMoreScreen() {
             onPress={() => router.push('/theme' as any)}
             activeOpacity={0.6}
             accessibilityRole="button"
-            accessibilityLabel="Theme"
-            accessibilityHint="Light, dark, or follow system"
+            accessibilityLabel={t('Theme')}
+            accessibilityHint={t('Light, dark, or follow system')}
           >
             <MaterialIcons name="brightness-6" size={rowIconSize} color={tint} style={styles.rowIcon} />
             <View style={styles.rowText}>
@@ -56,11 +60,27 @@ export default function BtdMoreScreen() {
 
           <TouchableOpacity
             style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}
+            onPress={() => router.push('/language' as any)}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel={t('Language')}
+            accessibilityHint={t('Choose your language')}
+          >
+            <MaterialIcons name="translate" size={rowIconSize} color={tint} style={styles.rowIcon} />
+            <View style={styles.rowText}>
+              <Text style={[styles.rowLabel, { color: c.text }]}>Language</Text>
+              <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Choose your language</Text>
+            </View>
+            <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}
             onPress={() => router.push('/accessibility' as any)}
             activeOpacity={0.6}
             accessibilityRole="button"
-            accessibilityLabel="Accessibility"
-            accessibilityHint="Icon/text size, contrast, and motion"
+            accessibilityLabel={t('Accessibility')}
+            accessibilityHint={t('Icon/text size, contrast, and motion')}
           >
             <MaterialIcons name="accessibility-new" size={rowIconSize} color={tint} style={styles.rowIcon} />
             <View style={styles.rowText}>
@@ -77,8 +97,8 @@ export default function BtdMoreScreen() {
             onPress={() => router.push('/info' as any)}
             activeOpacity={0.6}
             accessibilityRole="button"
-            accessibilityLabel="Info"
-            accessibilityHint="Fares, tickets, and contact info"
+            accessibilityLabel={t('Info')}
+            accessibilityHint={t('Fares, tickets, and contact info')}
           >
             <MaterialIcons name="info-outline" size={rowIconSize} color={tint} style={styles.rowIcon} />
             <View style={styles.rowText}>
@@ -99,8 +119,8 @@ export default function BtdMoreScreen() {
             onPress={() => router.replace('/(tabs)' as any)}
             activeOpacity={0.6}
             accessibilityRole="button"
-            accessibilityLabel="AggieSpirit Buses"
-            accessibilityHint="Switches back to TAMU's bus service"
+            accessibilityLabel={t('AggieSpirit Buses')}
+            accessibilityHint={t("Switches back to TAMU's bus service")}
           >
             <MaterialIcons name="swap-horiz" size={rowIconSize} color={tint} style={styles.rowIcon} />
             <View style={styles.rowText}>
@@ -119,8 +139,8 @@ export default function BtdMoreScreen() {
             <Switch
               value={launchIntoBtd}
               onValueChange={toggleLaunchIntoBtd}
-              accessibilityLabel="Load into BTD"
-              accessibilityHint="Opens the app directly to BTD's map on launch"
+              accessibilityLabel={t('Load into BTD')}
+              accessibilityHint={t("Opens the app directly to BTD's map on launch")}
             />
           </View>
         </View>

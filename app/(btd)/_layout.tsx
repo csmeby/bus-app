@@ -6,8 +6,10 @@ import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { BTD_TINT } from '@/constants/btd-theme';
 import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
+import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { translate } from '@/lib/translations';
 
 export default function BtdTabLayout() {
   const colorScheme = useColorScheme();
@@ -15,6 +17,10 @@ export default function BtdTabLayout() {
   const colors = useThemeColors();
   const { iconSize } = useAccessibility();
   const scale = ICON_SCALE[iconSize];
+  // See app/(tabs)/_layout.tsx's own comment - React Navigation renders
+  // this itself, not through ScaledText, so it needs an explicit translate().
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
   const tabIconSize = Math.round(26 * scale);
   const insets = useSafeAreaInsets();
   // See app/(tabs)/_layout.tsx's own comment on this same pattern - React
@@ -48,21 +54,21 @@ export default function BtdTabLayout() {
       <Tabs.Screen
         name="map"
         options={{
-          title: 'Map',
+          title: t('Map'),
           tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="map.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="plan"
         options={{
-          title: 'Plan',
+          title: t('Plan'),
           tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="arrow.triangle.turn.up.right.circle.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="schedule"
         options={{
-          title: 'Schedule',
+          title: t('Schedule'),
           tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="clock.fill" color={color} />,
         }}
       />
@@ -74,7 +80,7 @@ export default function BtdTabLayout() {
       <Tabs.Screen
         name="more"
         options={{
-          title: 'More',
+          title: t('More'),
           tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="line.3.horizontal" color={color} />,
         }}
       />

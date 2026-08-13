@@ -2,15 +2,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { NativeScrollEvent, NativeSyntheticEvent, StyleSheet, View, TouchableOpacity, Switch, ScrollView } from 'react-native';
+import { NativeScrollEvent, NativeSyntheticEvent, Platform, StyleSheet, View, TouchableOpacity, Switch, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
 import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
+import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
 import { useUnitCodes } from '@/context/unit-codes-context';
 import { DEFAULT_LAUNCH_BTD_KEY, ONBOARDING_COMPLETE_KEY } from '@/lib/onboarding';
 import { TourTarget, useTour, type TourStepId } from '@/lib/tour-context';
+import { translate } from '@/lib/translations';
 
 type IconName = React.ComponentProps<typeof MaterialIcons>['name'];
 
@@ -20,6 +22,13 @@ type MenuItem = { href: string; icon: IconName; label: string; description: stri
 const MENU_SECTIONS: MenuItem[][] = [
   [
     { href: '/theme', icon: 'brightness-6', label: 'Theme', description: 'Light, dark, or follow system' },
+    { href: '/language', icon: 'translate', label: 'Language', description: 'Choose your language' },
+    // Android has no Apple Maps to choose between - it's always Google Maps
+    // there regardless, so this row (and the whole provider choice) only
+    // makes sense on iOS.
+    ...(Platform.OS === 'ios'
+      ? [{ href: '/map-provider', icon: 'map' as IconName, label: 'Map', description: 'Apple Maps or Google Maps' }]
+      : []),
     { href: '/accessibility', icon: 'accessibility-new', label: 'Accessibility', description: 'Icon/text size, contrast, and motion' },
   ],
   [
@@ -40,6 +49,8 @@ export default function MoreScreen() {
   const { registerScrollView } = useTour();
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0);
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
 
   useEffect(() => {
     AsyncStorage.getItem(DEFAULT_LAUNCH_BTD_KEY).then(v => {
@@ -80,10 +91,10 @@ export default function MoreScreen() {
         onPress={() => router.push(item.href as any)}
         activeOpacity={0.6}
         accessibilityRole="button"
-        accessibilityLabel={item.label}
-        accessibilityHint={item.description}
+        accessibilityLabel={t(item.label)}
+        accessibilityHint={t(item.description)}
       >
-        <MaterialIcons name={item.icon} size={rowIconSize} color={c.tint} style={styles.rowIcon} />
+        <MaterialIcons name={item.icon} size={rowIconSize} color={c.tintText} style={styles.rowIcon} />
         <View style={styles.rowText}>
           <Text style={[styles.rowLabel, { color: c.text }]}>{item.label}</Text>
           <Text style={[styles.rowDesc, { color: c.textSecondary }]}>{item.description}</Text>
@@ -121,9 +132,9 @@ export default function MoreScreen() {
           off and lives behind an explicit opt-in rather than always showing. */}
       <View style={[styles.card, styles.spacedCard, { backgroundColor: c.surface, borderColor: c.border }]}>
         <View style={styles.row}>
-          <MaterialIcons name="badge" size={rowIconSize} color={c.tint} style={styles.rowIcon} />
+          <MaterialIcons name="badge" size={rowIconSize} color={c.tintText} style={styles.rowIcon} />
           <View style={styles.rowText}>
-            <Text style={[styles.rowLabel, { color: c.text }]}>Unit Codes <Text style={{ color: c.tint }}>(Experimental)</Text></Text>
+            <Text style={[styles.rowLabel, { color: c.text }]}>Unit Codes <Text style={{ color: c.tintText }}>(Experimental)</Text></Text>
             <Text style={[styles.rowDesc, { color: c.textSecondary }]}>
               Shows each unit&apos;s letter code (Alpha, Bravo, ...).
             </Text>
@@ -131,8 +142,8 @@ export default function MoreScreen() {
           <Switch
             value={unitCodesEnabled}
             onValueChange={setUnitCodesEnabled}
-            accessibilityLabel="Unit codes"
-            accessibilityHint="Shows each unit's letter code on bus callouts"
+            accessibilityLabel={t('Unit Codes')}
+            accessibilityHint={t("Shows each unit's letter code (Alpha, Bravo, ...).")}
           />
         </View>
       </View>
@@ -147,10 +158,10 @@ export default function MoreScreen() {
           onPress={() => router.replace('/(btd)/map' as any)}
           activeOpacity={0.6}
           accessibilityRole="button"
-          accessibilityLabel="Brazos Transit District"
-          accessibilityHint="Switches to BTD's bus service"
+          accessibilityLabel={t('Brazos Transit District')}
+          accessibilityHint={t("Switch to BTD's bus service")}
         >
-          <MaterialIcons name="swap-horiz" size={rowIconSize} color={c.tint} style={styles.rowIcon} />
+          <MaterialIcons name="swap-horiz" size={rowIconSize} color={c.tintText} style={styles.rowIcon} />
           <View style={styles.rowText}>
             <Text style={[styles.rowLabel, { color: c.text }]}>Brazos Transit District</Text>
             <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Switch to BTD&apos;s bus service</Text>
@@ -159,7 +170,7 @@ export default function MoreScreen() {
         </TouchableOpacity>
 
         <View style={styles.row}>
-          <MaterialIcons name="rocket-launch" size={rowIconSize} color={c.tint} style={styles.rowIcon} />
+          <MaterialIcons name="rocket-launch" size={rowIconSize} color={c.tintText} style={styles.rowIcon} />
           <View style={styles.rowText}>
             <Text style={[styles.rowLabel, { color: c.text }]}>Load into BTD</Text>
             <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Open straight to BTD instead of the map when you start the app</Text>
@@ -167,8 +178,8 @@ export default function MoreScreen() {
           <Switch
             value={launchIntoBtd}
             onValueChange={toggleLaunchIntoBtd}
-            accessibilityLabel="Load into BTD"
-            accessibilityHint="Opens the app directly to BTD's map on launch"
+            accessibilityLabel={t('Load into BTD')}
+            accessibilityHint={t('Open straight to BTD instead of the map when you start the app')}
           />
         </View>
       </TourTarget>
@@ -178,10 +189,10 @@ export default function MoreScreen() {
         onPress={replayTutorial}
         activeOpacity={0.6}
         accessibilityRole="button"
-        accessibilityLabel="Replay tutorial"
-        accessibilityHint="Watch the first-launch walkthrough again"
+        accessibilityLabel={t('Replay Tutorial')}
+        accessibilityHint={t('Watch the first-launch walkthrough again')}
       >
-        <MaterialIcons name="replay" size={rowIconSize} color={c.tint} style={styles.rowIcon} />
+        <MaterialIcons name="replay" size={rowIconSize} color={c.tintText} style={styles.rowIcon} />
         <View style={styles.rowText}>
           <Text style={[styles.rowLabel, { color: c.text }]}>Replay Tutorial</Text>
           <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Watch the first-launch walkthrough again</Text>

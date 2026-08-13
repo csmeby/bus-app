@@ -7,8 +7,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
 import { ALL_ROUTES } from '@/constants/routes';
+import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
 import { useFavorites } from '@/context/favorites-context';
+import { translate } from '@/lib/translations';
 import { API_BASE } from '@/lib/api-base';
 import {
   AlertPrefs,
@@ -17,7 +19,6 @@ import {
   defaultRouteAlertConfig,
   registerPushTokenWithServer,
   requestNotificationPermission,
-  sendLocalTestNotification,
 } from '@/lib/notifications';
 
 const PREFS_KEY = 'alert-prefs-v2';
@@ -69,10 +70,11 @@ function TimeField({
 export default function NotificationsScreen() {
   const c = useThemeColors();
   const { favorites } = useFavorites();
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
 
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [pushAvailable, setPushAvailable] = useState<boolean | null>(null);
   const [prefs, setPrefs] = useState<AlertPrefs>(EMPTY_PREFS);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,7 +90,7 @@ export default function NotificationsScreen() {
       }
       if (enabledRaw === 'true') {
         setEnabled(true);
-        registerPushTokenWithServer(API_BASE).then(token => setPushAvailable(!!token));
+        registerPushTokenWithServer(API_BASE);
       }
     })();
   }, []);
@@ -117,8 +119,7 @@ export default function NotificationsScreen() {
           setBusy(false);
           return;
         }
-        const token = await registerPushTokenWithServer(API_BASE, prefs);
-        setPushAvailable(!!token);
+        await registerPushTokenWithServer(API_BASE, prefs);
         setEnabled(true);
         await AsyncStorage.setItem(NOTIFICATIONS_ENABLED_KEY, 'true');
       } else {
@@ -191,15 +192,6 @@ export default function NotificationsScreen() {
     });
   };
 
-  const sendTest = async () => {
-    const granted = await requestNotificationPermission();
-    if (!granted) {
-      Alert.alert('Permission needed', 'Enable notifications first to receive a test alert.');
-      return;
-    }
-    await sendLocalTestNotification();
-  };
-
   const addedRoutes = prefs.routeConfigs.map(rc => rc.route);
   const addableRoutes = ALL_ROUTES.filter(r => !addedRoutes.includes(r));
   // Favorites first, in the add-a-route picker, so the routes someone's
@@ -215,6 +207,15 @@ export default function NotificationsScreen() {
       <ScreenHeader title="Notifications" />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
+        {language !== 'en' && (
+          <View style={[styles.noteCard, { backgroundColor: c.surfaceAlt, borderColor: c.border, marginTop: 0, marginBottom: 14 }]}>
+            <MaterialIcons name="info-outline" size={16} color={c.textSecondary} />
+            <Text style={[styles.noteText, { color: c.textSecondary }]}>
+              Notifications are only available in English right now.
+            </Text>
+          </View>
+        )}
+
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
           <View style={styles.row}>
             <View style={styles.rowText}>
@@ -227,8 +228,8 @@ export default function NotificationsScreen() {
               value={enabled}
               onValueChange={onToggle}
               disabled={busy}
-              accessibilityLabel="Enable notifications"
-              accessibilityHint="Required before any alerts can reach this device"
+              accessibilityLabel={t('Enable Notifications')}
+              accessibilityHint={t('Required before any alerts (delays, detours, service news) can reach this device.')}
             />
           </View>
         </View>
@@ -305,6 +306,7 @@ export default function NotificationsScreen() {
                           accessibilityRole="button"
                           accessibilityLabel="Always"
                           accessibilityState={{ selected: !hasSchedule }}
+                          hitSlop={6}
                         >
                           <Text style={[styles.segmentText, { color: !hasSchedule ? '#fff' : c.textSecondary }]}>Always</Text>
                         </TouchableOpacity>
@@ -314,6 +316,7 @@ export default function NotificationsScreen() {
                           accessibilityRole="button"
                           accessibilityLabel="Specific times"
                           accessibilityState={{ selected: hasSchedule }}
+                          hitSlop={6}
                         >
                           <Text style={[styles.segmentText, { color: hasSchedule ? '#fff' : c.textSecondary }]}>Specific times</Text>
                         </TouchableOpacity>
@@ -343,6 +346,7 @@ export default function NotificationsScreen() {
                                   accessibilityRole="checkbox"
                                   accessibilityLabel={DAY_FULL_NAMES[day]}
                                   accessibilityState={{ checked: on }}
+                                  hitSlop={{ top: 10, bottom: 10, left: 2, right: 2 }}
                                 >
                                   <Text style={[styles.dayChipText, { color: on ? '#fff' : c.textSecondary }]}>{label}</Text>
                                 </TouchableOpacity>
@@ -375,8 +379,8 @@ export default function NotificationsScreen() {
                           accessibilityRole="button"
                           accessibilityLabel="Add another window"
                         >
-                          <MaterialIcons name="add" size={16} color={c.tint} />
-                          <Text style={[styles.inlineBtnText, { color: c.tint }]}>Add another window</Text>
+                          <MaterialIcons name="add" size={16} color={c.tintText} />
+                          <Text style={[styles.inlineBtnText, { color: c.tintText }]}>Add another window</Text>
                         </TouchableOpacity>
                       )}
 
@@ -409,6 +413,7 @@ export default function NotificationsScreen() {
                       onPress={() => addRoute(route)}
                       accessibilityRole="button"
                       accessibilityLabel={`Add route ${route}${favorites.includes(route) ? ', favorite' : ''}`}
+                      hitSlop={7}
                     >
                       {favorites.includes(route) && <Text style={{ fontSize: 11 }}>★ </Text>}
                       <Text style={[styles.routeChipText, { color: c.text }]}>{route}</Text>

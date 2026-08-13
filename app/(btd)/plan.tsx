@@ -17,7 +17,7 @@ import MapView, { Marker, Polyline } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
-import { BTD_TINT } from '@/constants/btd-theme';
+import { BTD_BUTTON_TINT, BTD_TINT } from '@/constants/btd-theme';
 import { DARK_MAP_STYLE } from '@/constants/theme';
 import { useThemeColors } from '@/context/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -313,6 +313,7 @@ export default function BtdPlanRideScreen() {
   const scheme = useColorScheme();
   const c = useThemeColors();
   const tint = BTD_TINT[scheme];
+  const buttonTint = BTD_BUTTON_TINT[scheme];
 
   const [origin, setOrigin] = useState<LatLon | null>(null);
   const [originLabel, setOriginLabel] = useState<string | null>(null);
@@ -441,7 +442,7 @@ export default function BtdPlanRideScreen() {
         <View style={[styles.disclaimer, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
           <MaterialIcons name="info-outline" size={14} color={c.textSecondary} />
           <Text style={[styles.disclaimerText, { color: c.textSecondary }]}>
-            This is an estimate from BTD's posted schedule. Buses run Monday-Friday, 5 AM-7 PM only.
+            This is an estimate from BTD&apos;s posted schedule. Buses run Monday-Friday, 5 AM-7 PM only.
           </Text>
         </View>
 
@@ -660,7 +661,7 @@ export default function BtdPlanRideScreen() {
                     </View>
                   ))}
                   <TouchableOpacity
-                    style={[styles.startBtn, { backgroundColor: tint }]}
+                    style={[styles.startBtn, { backgroundColor: buttonTint }]}
                     onPress={() => setRoutePreviewItin(itin)}
                     activeOpacity={0.8}
                     accessibilityRole="button"
@@ -791,7 +792,7 @@ export default function BtdPlanRideScreen() {
           })()}
           <View style={[styles.pickerFooter, { backgroundColor: c.surface }]}>
             <TouchableOpacity
-              style={[styles.pickerConfirmBtn, { backgroundColor: tint, flex: 1 }]}
+              style={[styles.pickerConfirmBtn, { backgroundColor: buttonTint, flex: 1 }]}
               onPress={() => setRoutePreviewItin(null)}
               activeOpacity={0.8}
               accessibilityRole="button"
@@ -830,7 +831,7 @@ export default function BtdPlanRideScreen() {
               <Text style={{ color: c.textSecondary, fontSize: 15, fontWeight: '600' }}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.pickerConfirmBtn, { backgroundColor: tint }]}
+              style={[styles.pickerConfirmBtn, { backgroundColor: buttonTint }]}
               onPress={confirmMapPicker}
               activeOpacity={0.8}
               accessibilityRole="button"
@@ -961,7 +962,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     overflow: 'hidden',
   },
-  resultRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10 },
+  resultRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 13 },
   resultsDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 4 },
   resultName: { fontSize: 14, fontWeight: '600' },
   resultSub: { fontSize: 11, marginTop: 1 },

@@ -13,6 +13,8 @@ import { DEFAULT_LAUNCH_BTD_KEY, ONBOARDING_COMPLETE_KEY } from '@/lib/onboardin
 import { TourProvider } from '@/lib/tour-context';
 import { AccessibilityProvider } from '@/context/accessibility-context';
 import { FavoritesProvider } from '@/context/favorites-context';
+import { LanguageProvider } from '@/context/language-context';
+import { MapProviderProvider } from '@/context/map-provider-context';
 import { ThemeProvider, useAppTheme } from '@/context/theme-context';
 import { UnitCodesProvider } from '@/context/unit-codes-context';
 import { useEffect } from 'react';
@@ -53,6 +55,8 @@ function RootLayoutInner() {
         <Stack.Screen name="(btd)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="theme" options={{ headerShown: false }} />
+        <Stack.Screen name="language" options={{ headerShown: false }} />
+        <Stack.Screen name="map-provider" options={{ headerShown: false }} />
         <Stack.Screen name="accessibility" options={{ headerShown: false }} />
         <Stack.Screen name="favorites" options={{ headerShown: false }} />
         <Stack.Screen name="disruptions" options={{ headerShown: false }} />
@@ -99,13 +103,17 @@ export default function RootLayout() {
     <ErrorBoundary>
       <ThemeProvider>
         <AccessibilityProvider>
-          <FavoritesProvider>
-            <UnitCodesProvider>
-              <TourProvider>
-                <RootLayoutInner />
-              </TourProvider>
-            </UnitCodesProvider>
-          </FavoritesProvider>
+          <LanguageProvider>
+            <MapProviderProvider>
+              <FavoritesProvider>
+                <UnitCodesProvider>
+                  <TourProvider>
+                    <RootLayoutInner />
+                  </TourProvider>
+                </UnitCodesProvider>
+              </FavoritesProvider>
+            </MapProviderProvider>
+          </LanguageProvider>
         </AccessibilityProvider>
       </ThemeProvider>
     </ErrorBoundary>

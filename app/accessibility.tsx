@@ -32,12 +32,14 @@ const TEXT_LABELS: Record<TextSize, string> = {
 };
 
 function SliderRow<T extends string>({
+  label,
   options,
   value,
   onChange,
   labels,
   c,
 }: {
+  label: string;
   options: T[];
   value: T;
   onChange: (v: T) => void;
@@ -60,9 +62,11 @@ function SliderRow<T extends string>({
         step={1}
         value={currentIndex >= 0 ? currentIndex : 2}
         onValueChange={index => onChange(options[index])}
-        minimumTrackTintColor={c.tint}
+        minimumTrackTintColor={c.tintText}
         maximumTrackTintColor={c.border}
-        thumbTintColor={c.tint}
+        thumbTintColor={c.tintText}
+        accessibilityLabel={label}
+        accessibilityValue={{ min: 0, max: options.length - 1, now: currentIndex >= 0 ? currentIndex : 2, text: labels[value] }}
       />
       <View style={styles.sliderLabelsRow}>
         <Text style={[styles.rangeLabel, { color: c.textSecondary }]}>Min</Text>
@@ -96,6 +100,7 @@ export default function AccessibilityScreen() {
             Scales map markers and tab bar icons. Changing this will close any routes you have open on the map.
           </Text>
           <SliderRow
+            label="Icon size"
             options={ICON_SIZES}
             value={iconSize}
             onChange={setIconSize}
@@ -110,6 +115,7 @@ export default function AccessibilityScreen() {
             Scales text in the More menu and key screens.
           </Text>
           <SliderRow
+            label="Text size"
             options={TEXT_SIZES}
             value={textSize}
             onChange={setTextSize}

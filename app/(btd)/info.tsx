@@ -53,7 +53,6 @@ const RIDING_RULES = [
 ];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  const scheme = useColorScheme();
   const c = useThemeColors();
   return (
     <View style={styles.section}>

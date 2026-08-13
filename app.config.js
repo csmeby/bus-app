@@ -16,7 +16,7 @@ module.exports = {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.csmeby.ctt",
-      buildNumber: "21",
+      buildNumber: "22",
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
         NSAppTransportSecurity: {
@@ -71,7 +71,6 @@ module.exports = {
           mode: "production"
         }
       ],
-      "expo-web-browser",
       [
         "react-native-maps",
         {

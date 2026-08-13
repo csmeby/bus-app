@@ -17,7 +17,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT, Polyline } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_DEFAULT, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
+import { captureRef } from 'react-native-view-shot';
 
 import { MarkerImageFactory, useMarkerImage } from '@/lib/marker-image-factory';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,17 +30,23 @@ import { useThemeColors } from '@/context/theme-context';
 import { ALL_ROUTES } from '@/constants/routes';
 import { findFleetInfo, fleetNotesFor, type FleetBlock } from '@/constants/fleet';
 import { ICON_SCALE, useAccessibility, type IconSize as IconSizeType } from '@/context/accessibility-context';
+import { GOOGLE_MAPS_IOS_READY, useMapProvider } from '@/context/map-provider-context';
 import { useFavorites } from '@/context/favorites-context';
 import { useUnitCodes } from '@/context/unit-codes-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { API_BASE } from '@/lib/api-base';
 import { cachedJsonFetch } from '@/lib/local-cache';
+import { springOrJump } from '@/lib/motion';
 import { TourTarget } from '@/lib/tour-context';
 import routePatterns from '../../routes_patterns.json';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const STOP_LIST_HEIGHT_COLLAPSED = 220;
 const STOP_LIST_HEIGHT_EXPANDED = Math.round(SCREEN_HEIGHT * 0.5);
+// Padding around the bus callout's capture wrapper (styles.calloutCaptureWrap)
+// so its shadow (shadowRadius: 8) has room to render instead of clipping at
+// the capture bounds - see the iOS+Google callout bake.
+const CALLOUT_SHADOW_PAD = 10;
 
 // Shared by every place that mounts a batch of brand-new map children
 // (Polylines, stop/bus Markers) into react-native-maps' AIRMap - see the
@@ -305,26 +312,6 @@ function isOffRoute(lat: number, lon: number, coords: { latitude: number; longit
   return true;
 }
 
-// Accessibility > Reduce Motion (see context/accessibility-context.tsx) -
-// jumps straight to the end value instead of springing when enabled, for
-// the stop panel's slide and its swipe-to-dismiss settle-back. A plain
-// function (not a hook) since it just needs the current reduceMotion flag
-// as a parameter, called from spots that already have it in scope.
-function springOrJump(
-  value: Animated.Value,
-  toValue: number,
-  config: { tension: number; friction: number },
-  reduceMotion: boolean,
-  onDone?: () => void,
-) {
-  if (reduceMotion) {
-    value.setValue(toValue);
-    onDone?.();
-    return;
-  }
-  Animated.spring(value, { toValue, useNativeDriver: false, ...config }).start(onDone);
-}
-
 // Local calendar date, not toISOString() (which is UTC and rolls over to the
 // wrong day depending on time-of-day/timezone offset).
 function toDateStr(d: Date): string {
@@ -535,15 +522,28 @@ export default function MapScreen() {
   const scheme = useColorScheme();
   const c = useThemeColors();
   const { reduceMotion, iconSize: currentIconSize } = useAccessibility();
-  // iOS only ever uses Apple Maps now - Google Maps on iOS was tried (a
-  // Settings > Map provider choice) and dropped: react-native-maps' Google
-  // renderer never paints a composed-View Marker at all on iOS, and the
-  // only workaround for rich/interactive content (a screen-space overlay
-  // via pointForCoordinate) can't track a live pan/zoom gesture in real
-  // time, which wasn't an acceptable tradeoff. Android has no Apple Maps to
-  // switch away from - it's always Google Maps there regardless.
-  const provider = PROVIDER_DEFAULT;
-  const isGoogleMaps = Platform.OS === 'android';
+  // Android has no Apple Maps to switch away from - it's always Google
+  // Maps there. iOS honors the Settings > Map choice (see
+  // context/map-provider-context.tsx); PROVIDER_DEFAULT there means Apple
+  // Maps specifically, not "whatever this platform defaults to."
+  const { mapProvider } = useMapProvider();
+  const provider = Platform.OS === 'ios' && mapProvider === 'google' && GOOGLE_MAPS_IOS_READY ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
+  // tracksViewChanges is a dead prop on the Google Maps renderer under the
+  // New Architecture (Android always uses it; iOS can now opt in too via
+  // Settings > Map) - toggling it never re-snapshots a custom marker view,
+  // so anything relying on a one-shot true->false flip to freeze AFTER its
+  // first real paint can get stuck on a blank/default icon if that first
+  // paint races the snapshot. Apple Maps' renderer doesn't have this bug -
+  // its tracksViewChanges toggling genuinely works, so this only forces the
+  // always-true workaround on the renderer that actually needs it.
+  // NOT just `provider === PROVIDER_GOOGLE` - `provider` only becomes
+  // PROVIDER_GOOGLE on iOS (see above), so that check alone is always false
+  // on Android and was silently routing Android through every branch in
+  // this file meant for Apple Maps' renderer instead (the two-marker bus
+  // composite, the pre-rendered ring image, every Android-specific
+  // workaround below) even though Android's native map has always genuinely
+  // been Google Maps under PROVIDER_DEFAULT the whole time.
+  const isGoogleMaps = Platform.OS === 'android' || provider === PROVIDER_GOOGLE;
   const insets = useSafeAreaInsets();
   const { isFavorite } = useFavorites();
   const { enabled: unitCodesEnabled } = useUnitCodes();
@@ -654,6 +654,10 @@ export default function MapScreen() {
     cancelGradualSelectAll();
     savedRoutesForReopenRef.current = null;
     setSelectedRoutes(new Set());
+    // cancelGradualSelectAll is declared further down (stable, [] deps) -
+    // referencing it here in the array (not just the body) would be a
+    // temporal-dead-zone error, so it can't be listed despite being stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIconSize]);
 
   // Normally 'slide' (the sheet's own open/close animation). Forced to
@@ -817,6 +821,19 @@ export default function MapScreen() {
   // /buses (GPS gap) instead of the content disappearing out from under the user.
   const [busSnapshot, setBusSnapshot] = useState<any | null>(null);
   const [fleetInfoBus, setFleetInfoBus] = useState<{ name: string; info: FleetBlock | null } | null>(null);
+  // iOS's Google Maps SDK never rasterizes a composed-View Marker at all
+  // (see lib/marker-image-factory.tsx's own writeup) - the callout below is
+  // exactly that, so on iOS+Google it has to be baked to a bitmap like every
+  // other marker in this file. Unlike those (a small bounded palette of
+  // route colors/stop numbers, cached forever), the callout's content
+  // changes with live poll data for whichever ONE bus is currently
+  // selected - so this is a single ad-hoc slot, not routed through
+  // lib/marker-image-factory.tsx's shared cache, which would otherwise
+  // accumulate a new PNG per distinct passenger-count/delay/etc. combo for
+  // the rest of the session. See the capture effect and calloutCaptureHost
+  // near the render section below.
+  const calloutCaptureRef = useRef<View>(null);
+  const [calloutImageUri, setCalloutImageUri] = useState<string | null>(null);
 
   // ── route helpers ──────────────────────────────────────────────────────────
 
@@ -1256,6 +1273,10 @@ export default function MapScreen() {
       clearInterval(id);
       if (routeLinesStaggerTimerRef.current) clearTimeout(routeLinesStaggerTimerRef.current);
     };
+    // applyPatterns is a plain function redefined every render, not a
+    // useCallback - listing it here would restart this effect's 15-min
+    // poll/interval on every render instead of just when mapReady flips.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady]);
 
   function applyPatterns(source: Record<string, any>) {
@@ -1540,7 +1561,7 @@ export default function MapScreen() {
     fetchReroutes();
     const id = setInterval(fetchReroutes, 150000);
     return () => clearInterval(id);
-  }, []);
+  }, [stopMapRef]);
 
   // ── route bounds for zoom-to-fit ─────────────────────────────────────────
   const selectedRouteBounds = useMemo(() => {
@@ -1627,6 +1648,7 @@ export default function MapScreen() {
   const closeBusCallout = useCallback(() => {
     setSelectedBusName(null);
     setBusSnapshot(null);
+    setCalloutImageUri(null);
   }, []);
 
   // Deselecting a bus's route unmounts its marker (see mountedBuses) - its
@@ -1720,7 +1742,7 @@ export default function MapScreen() {
     // ever be JS-driven (PanResponder's gestureState is computed in JS, not
     // available to the native driver) - mixing drivers on one node throws
     // "Attempting to run JS driven animation on node ... moved to native".
-    springOrJump(stopPanelAnim, 1, { tension: 80, friction: 10 }, reduceMotion);
+    springOrJump(stopPanelAnim, 1, { tension: 80, friction: 10, useNativeDriver: false }, reduceMotion);
 
     const relevantRoutes = stop.routes;
 
@@ -1804,7 +1826,7 @@ export default function MapScreen() {
 
   const closeStopPanel = useCallback(() => {
     stopReqIdRef.current++; // drop in-flight times/schedule responses for the closed panel
-    springOrJump(stopPanelAnim, 0, { tension: 80, friction: 10 }, reduceMotion, () => setSelectedStop(null));
+    springOrJump(stopPanelAnim, 0, { tension: 80, friction: 10, useNativeDriver: false }, reduceMotion, () => setSelectedStop(null));
   }, [stopPanelAnim, reduceMotion]);
 
   // Swipe gesture on the stop sheet's drag handle: down past a threshold
@@ -1820,7 +1842,7 @@ export default function MapScreen() {
       onPanResponderMove: Animated.event([null, { dy: stopSheetDragY }], { useNativeDriver: false }),
       onPanResponderRelease: (_evt, gesture) => {
         const expanded = stopSheetExpandedRef.current;
-        const spring = () => springOrJump(stopSheetDragY, 0, { tension: 80, friction: 10 }, reduceMotionRef.current);
+        const spring = () => springOrJump(stopSheetDragY, 0, { tension: 80, friction: 10, useNativeDriver: false }, reduceMotionRef.current);
 
         // A near-motionless touch on the handle - tap to toggle instead of
         // requiring an actual drag at all.
@@ -1855,7 +1877,7 @@ export default function MapScreen() {
         spring();
       },
       onPanResponderTerminate: () => {
-        springOrJump(stopSheetDragY, 0, { tension: 80, friction: 10 }, reduceMotionRef.current);
+        springOrJump(stopSheetDragY, 0, { tension: 80, friction: 10, useNativeDriver: false }, reduceMotionRef.current);
       },
     })
   ).current;
@@ -1961,6 +1983,36 @@ export default function MapScreen() {
     calloutSettleRafRef.current = { raf1, raf2: 0 };
   }, []);
 
+  // iOS+Google-only: (re)bakes the callout to a bitmap every time its
+  // content would otherwise have re-snapshotted above (calloutRefreshPulse's
+  // own [selectedBusName, busSheetStats] deps - same ~10s poll cadence, not
+  // a new refresh rate). No onLayout to hook here (unlike onCalloutLayout
+  // above) since content can change without the captured view's pixel
+  // dimensions changing at all (e.g. a passenger count digit) - same
+  // "no layout signal available, just settle two real frames after the
+  // dependency changed" approach BusHeadingMarker/StopMarker's own
+  // image-prop markers already use.
+  useEffect(() => {
+    if (!(Platform.OS === 'ios' && isGoogleMaps && selectedBusName && selectedBus && busSheetStats)) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(async () => {
+        if (!calloutCaptureRef.current) return;
+        try {
+          const uri = await captureRef(calloutCaptureRef.current, { format: 'png', quality: 1, result: 'data-uri' });
+          setCalloutImageUri(uri);
+        } catch {
+          // Leave the previous bitmap showing (if any) rather than blank -
+          // a stale-but-visible callout beats a vanished one.
+        }
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [isGoogleMaps, selectedBusName, busSheetStats, selectedBus]);
+
   // ── timepoint hold countdown ───────────────────────────────────────────────
 
   // A bus is "holding" at the selected stop if /buses says so for it - see
@@ -2005,12 +2057,125 @@ export default function MapScreen() {
     ? new Date(stopHoldBus.hold.scheduledDepartTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     : '';
 
+  // The callout's visual content - shared verbatim between the composed-view
+  // Marker (Apple Maps, Android Google Maps - unchanged from before) and the
+  // off-screen host captured to a bitmap for iOS+Google below, so there's
+  // only ever one copy of this markup to keep in sync.
+  const calloutBox = selectedBusName && selectedBus && busSheetStats ? (
+    <View style={[styles.callout, { backgroundColor: sheetBg, borderColor: c.border }]}>
+      <View style={styles.pillRow}>
+        <View style={[styles.pill, { backgroundColor: routeColors[selectedBus.route] ?? BRAND_MAROON }]}>
+          <Text style={styles.pillText}>Route {selectedBus.route}</Text>
+        </View>
+        {!!selectedBus.direction && (
+          <View style={[styles.pill, { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border }]}>
+            <Text style={[styles.pillText, { color: c.text }]}>{selectedBus.direction}</Text>
+          </View>
+        )}
+        {busSheetStats.offRoute && (
+          <View style={[styles.pill, { backgroundColor: '#F97316' }]}>
+            <Text style={styles.pillText}>Off Route</Text>
+          </View>
+        )}
+        {selectedBus.isExtraTrip && (
+          <View style={[styles.pill, { backgroundColor: '#8B5CF6' }]}>
+            <Text style={styles.pillText}>Extra Trip</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.busIdRow}>
+        <TouchableOpacity
+          onPress={() => openFleetInfo(selectedBus.name)}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={`Bus ${busDisplayName(selectedBus.name)}, view fleet info`}
+        >
+          <Text style={[styles.calloutBusId, { color: c.text }]}>
+            Bus {busDisplayName(selectedBus.name)}
+          </Text>
+        </TouchableOpacity>
+        {/* Radio callsign inferred from the driver shift board
+            (server-side, see unit_assignment.py). When the match
+            isn't certain (a "best guess" at server-restart cold
+            start, with no per-bus signal to disambiguate) it's
+            shown with a "?" and muted - still useful, but not
+            presented as fact. */}
+        {unitCodesEnabled && !!selectedBus.unit && (
+          <Text style={[styles.calloutUnit, { color: selectedBus.unitConfirmed ? c.textSecondary : c.tintText }]}>
+            {selectedBus.unit}{selectedBus.unitConfirmed ? '' : '?'}
+          </Text>
+        )}
+      </View>
+
+      {Array.isArray(selectedBus.amenities) && selectedBus.amenities.length > 0 && (
+        <View style={styles.amenityIconRow}>
+          {selectedBus.amenities.map((a: any, i: number) => (
+            <View key={i} style={styles.amenityIconItem}>
+              <MaterialIcons name={amenityIcon(a.iconName)} size={13} color={c.textSecondary} />
+              <Text style={[styles.amenityIconLabel, { color: c.textSecondary }]}>{amenityLabel(a)}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <View
+        style={styles.barRow}
+        accessible
+        accessibilityLabel={`Approximately ${busSheetStats.dispPax} passengers on board`}
+      >
+        <View style={[styles.barBg, { backgroundColor: c.surfaceAlt }]}>
+          <View style={[styles.barFill, { width: `${Math.round(busSheetStats.pct * 100)}%`, backgroundColor: busSheetStats.barColor }]} />
+        </View>
+        <Text style={[styles.barLabel, { color: c.textSecondary }]}>~{busSheetStats.dispPax} passengers</Text>
+      </View>
+      {busSheetStats.delayLabel && (
+        <Text style={[styles.delayLabel, { color: c.textSecondary }]}>{busSheetStats.delayLabel}</Text>
+      )}
+    </View>
+  ) : null;
+  const calloutPointerEl = <View style={[styles.calloutPointer, { borderTopColor: sheetBg }]} />;
+
   // ── render ─────────────────────────────────────────────────────────────────
 
   return (
     <View style={styles.root}>
       <MarkerImageFactory />
+      {/* Permanently-mounted, always-off-screen capture source for the
+          iOS+Google callout bitmap below - never rendered as the on-map
+          Marker's own children (that composed-view content is exactly what
+          never paints on iOS' Google renderer in the first place). Sized to
+          styles.callout's own fixed width plus room for its shadow to
+          render without clipping; height is intrinsic since, unlike every
+          other baked marker in this file, the resulting image's displayed
+          size just IS whatever got captured - there's no fixed-anchor trick
+          to keep stable here the way calloutMarkerWrap's spacer does for
+          the live composed-view path, because a static bitmap's own bottom
+          edge is always correct regardless of how tall the card is this
+          time. */}
+      {Platform.OS === 'ios' && isGoogleMaps && selectedBusName && selectedBus && busSheetStats && (
+        <View style={styles.calloutCaptureHost} pointerEvents="none">
+          <View ref={calloutCaptureRef} collapsable={false} style={styles.calloutCaptureWrap}>
+            {calloutBox}
+            {calloutPointerEl}
+            <View style={styles.calloutCaptureGap} />
+          </View>
+        </View>
+      )}
       <MapView
+        // Apple Maps (MapKit, native class AIRMap) and Google Maps (native
+        // class AIRGoogleMap) are two entirely different native views -
+        // switching `provider` at runtime (Settings > Map, iOS only) only
+        // updates a prop on the SAME already-mounted native instance, it
+        // doesn't swap which native class backs it. Markers/polylines
+        // already queued for the old view then land on the fresh one at
+        // indices that don't exist yet - exactly the crash TestFlight
+        // reported (`insertObject:atIndex:index N beyond bounds for empty
+        // array` in AIRGoogleMap.mm, only on a live in-app switch, never on
+        // a cold start where the right provider is chosen from the start).
+        // Keying on the provider forces React to fully unmount/remount into
+        // the correct native class instead of trying to reuse the old one.
+        key={provider === PROVIDER_GOOGLE ? 'google' : 'default'}
         ref={mapRef}
         provider={provider}
         style={StyleSheet.absoluteFillObject}
@@ -2171,111 +2336,72 @@ export default function MapScreen() {
           />
         ))}
 
-        {/* Bus callout - a second plain Marker (not <Callout>) sharing the
-            selected bus's coordinate, anchored so its bottom edge (the pointer
-            tip) sits right above the bus icon. Being a real marker, it pans/
-            zooms with the map exactly like every other marker here; being a
-            Marker and not a Callout, nothing auto-dismisses it on updates.
-            tracksViewChanges pulses (calloutRefreshPulse, see its own
-            comment above) rather than staying hard-on, since its content
+        {/* Bus callout. On Apple Maps and Android Google Maps: a second
+            plain Marker (not <Callout>) sharing the selected bus's
+            coordinate, anchored so its bottom edge (the pointer tip) sits
+            right above the bus icon - a real marker pans/zooms with the map
+            exactly like every other marker here, and being a Marker and not
+            a Callout, nothing auto-dismisses it on updates (react-native-maps'
+            native <Callout> dismisses itself on basically any prop update to
+            its parent Marker, see the historical note above selectedBusName's
+            own declaration). tracksViewChanges pulses (calloutRefreshPulse)
+            rather than staying hard-on, since its content
             (speed/passengers/hold) changes live for the one currently-
-            selected bus. */}
-        {selectedBusName && selectedBus && busSheetStats && (
-          <Marker
-            key={`${selectedBus.name}-callout`}
-            coordinate={{ latitude: selectedBus.lat, longitude: selectedBus.lon }}
-            anchor={{ x: 0.5, y: 1 }}
-            tracksViewChanges={isGoogleMaps || calloutRefreshPulse}
-            tappable={false}
-            zIndex={100}
-          >
-            <View style={styles.calloutMarkerWrap} onLayout={onCalloutLayout}>
-              {/* This inner group - not calloutMarkerWrap itself - is what's
-                  bottom-justified, with a fixed-height spacer as its last
-                  child. That pins the gap between the pointer tip and the
-                  spacer's bottom edge (== calloutMarkerWrap's fixed,
-                  iOS-anchor-safe bottom) at a CONSTANT distance regardless
-                  of how tall the callout box above it grows/shrinks - so
-                  the box's own content is free to size normally (Off Route/
-                  delayLabel back to real conditional rendering below) without
-                  the bus-icon gap ever moving. */}
-              <View style={styles.calloutContentGroup}>
-                <View style={[styles.callout, { backgroundColor: sheetBg, borderColor: c.border }]}>
-                <View style={styles.pillRow}>
-                  <View style={[styles.pill, { backgroundColor: routeColors[selectedBus.route] ?? BRAND_MAROON }]}>
-                    <Text style={styles.pillText}>Route {selectedBus.route}</Text>
-                  </View>
-                  {!!selectedBus.direction && (
-                    <View style={[styles.pill, { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border }]}>
-                      <Text style={[styles.pillText, { color: c.text }]}>{selectedBus.direction}</Text>
-                    </View>
-                  )}
-                  {busSheetStats.offRoute && (
-                    <View style={[styles.pill, { backgroundColor: '#F97316' }]}>
-                      <Text style={styles.pillText}>Off Route</Text>
-                    </View>
-                  )}
-                  {selectedBus.isExtraTrip && (
-                    <View style={[styles.pill, { backgroundColor: '#8B5CF6' }]}>
-                      <Text style={styles.pillText}>Extra Trip</Text>
-                    </View>
-                  )}
+            selected bus.
+            On iOS+Google: that same composed content never paints at all
+            (see calloutCaptureHost above and lib/marker-image-factory.tsx's
+            own writeup) - baked to a bitmap there instead, and the whole
+            marker's tap opens Fleet Info (there's no nested TouchableOpacity
+            to catch it on a flat image the way there is above). */}
+        {Platform.OS === 'ios' && isGoogleMaps ? (
+          calloutImageUri && selectedBus && (
+            <Marker
+              key={`${selectedBus.name}-callout`}
+              coordinate={{ latitude: selectedBus.lat, longitude: selectedBus.lon }}
+              anchor={{ x: 0.5, y: 1 }}
+              image={{ uri: calloutImageUri }}
+              // Always true, never locked false - unlike BusMarker's one-time
+              // color bake, this image keeps changing (new capture ~every
+              // poll while open), and tracksViewChanges is a dead prop on the
+              // Google renderer under the New Architecture (see the
+              // provider/isGoogleMaps comment above): a false-lock never gets
+              // a chance to pick up a later swap. Matches every other
+              // repeatedly-updating image marker in this file
+              // (BusHeadingMarker, StopMarker's unbadged path).
+              tracksViewChanges
+              tappable
+              zIndex={100}
+              onPress={e => { e.stopPropagation(); openFleetInfo(selectedBus.name); }}
+            />
+          )
+        ) : (
+          selectedBusName && selectedBus && busSheetStats && (
+            <Marker
+              key={`${selectedBus.name}-callout`}
+              coordinate={{ latitude: selectedBus.lat, longitude: selectedBus.lon }}
+              anchor={{ x: 0.5, y: 1 }}
+              tracksViewChanges={isGoogleMaps || calloutRefreshPulse}
+              tappable={false}
+              zIndex={100}
+            >
+              <View style={styles.calloutMarkerWrap} onLayout={onCalloutLayout}>
+                {/* This inner group - not calloutMarkerWrap itself - is what's
+                    bottom-justified, with a fixed-height spacer as its last
+                    child. That pins the gap between the pointer tip and the
+                    spacer's bottom edge (== calloutMarkerWrap's fixed,
+                    iOS-anchor-safe bottom) at a CONSTANT distance regardless
+                    of how tall the callout box above it grows/shrinks - so
+                    the box's own content is free to size normally (Off Route/
+                    delayLabel back to real conditional rendering below) without
+                    the bus-icon gap ever moving. */}
+                <View style={styles.calloutContentGroup}>
+                  {calloutBox}
+                  {calloutPointerEl}
                 </View>
-
-                <View style={styles.busIdRow}>
-                  <TouchableOpacity
-                    onPress={() => openFleetInfo(selectedBus.name)}
-                    hitSlop={6}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Bus ${busDisplayName(selectedBus.name)}, view fleet info`}
-                  >
-                    <Text style={[styles.calloutBusId, { color: c.text }]}>
-                      Bus {busDisplayName(selectedBus.name)}
-                    </Text>
-                  </TouchableOpacity>
-                  {/* Radio callsign inferred from the driver shift board
-                      (server-side, see unit_assignment.py). When the match
-                      isn't certain (a "best guess" at server-restart cold
-                      start, with no per-bus signal to disambiguate) it's
-                      shown with a "?" and muted - still useful, but not
-                      presented as fact. */}
-                  {unitCodesEnabled && !!selectedBus.unit && (
-                    <Text style={[styles.calloutUnit, { color: selectedBus.unitConfirmed ? c.textSecondary : c.tint }]}>
-                      {selectedBus.unit}{selectedBus.unitConfirmed ? '' : '?'}
-                    </Text>
-                  )}
-                </View>
-
-                {Array.isArray(selectedBus.amenities) && selectedBus.amenities.length > 0 && (
-                  <View style={styles.amenityIconRow}>
-                    {selectedBus.amenities.map((a: any, i: number) => (
-                      <View key={i} style={styles.amenityIconItem}>
-                        <MaterialIcons name={amenityIcon(a.iconName)} size={13} color={c.textSecondary} />
-                        <Text style={[styles.amenityIconLabel, { color: c.textSecondary }]}>{amenityLabel(a)}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                <View
-                  style={styles.barRow}
-                  accessible
-                  accessibilityLabel={`Approximately ${busSheetStats.dispPax} passengers on board`}
-                >
-                  <View style={[styles.barBg, { backgroundColor: c.surfaceAlt }]}>
-                    <View style={[styles.barFill, { width: `${Math.round(busSheetStats.pct * 100)}%`, backgroundColor: busSheetStats.barColor }]} />
-                  </View>
-                  <Text style={[styles.barLabel, { color: c.textSecondary }]}>~{busSheetStats.dispPax} passengers</Text>
-                </View>
-                {busSheetStats.delayLabel && (
-                  <Text style={[styles.delayLabel, { color: c.textSecondary }]}>{busSheetStats.delayLabel}</Text>
-                )}
-                </View>
-                <View style={[styles.calloutPointer, { borderTopColor: sheetBg }]} />
+                <View style={styles.calloutSpacer} />
               </View>
-              <View style={styles.calloutSpacer} />
-            </View>
-          </Marker>
+            </Marker>
+          )
         )}
         </>}
       </MapView>
@@ -2312,7 +2438,7 @@ export default function MapScreen() {
       </TourTarget>
 
       {/* ── Route selector modal ───────────────────────────────────────────── */}
-      <Modal visible={routePickerOpen} transparent animationType={routePickerAnimation} onRequestClose={() => setRoutePickerOpen(false)}>
+      <Modal visible={routePickerOpen} transparent animationType={reduceMotion ? 'none' : routePickerAnimation} onRequestClose={() => setRoutePickerOpen(false)}>
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
@@ -2325,7 +2451,7 @@ export default function MapScreen() {
           <View style={[styles.sheetHeader, { borderBottomColor: c.border }]}>
             <Text style={[styles.sheetTitle, { color: c.text }]} accessibilityRole="header">Select Routes</Text>
             <TouchableOpacity onPress={() => setRoutePickerOpen(false)} accessibilityRole="button" hitSlop={8}>
-              <Text style={[styles.sheetDone, { color: c.tint }]}>Done</Text>
+              <Text style={[styles.sheetDone, { color: c.tintText }]}>Done</Text>
             </TouchableOpacity>
           </View>
 
@@ -2350,7 +2476,7 @@ export default function MapScreen() {
               <Text style={[styles.routeTagText, { color: selectedRoutes.size === ALL_ROUTES.length ? '#fff' : c.textSecondary }]}>ALL</Text>
             </View>
             <Text style={[styles.routeName, { color: c.text }]}>All Routes</Text>
-            {selectedRoutes.size === ALL_ROUTES.length && <Text style={[styles.checkmark, { color: c.tint }]}>✓</Text>}
+            {selectedRoutes.size === ALL_ROUTES.length && <Text style={[styles.checkmark, { color: c.tintText }]}>✓</Text>}
           </TouchableOpacity>
 
           <FlatList
@@ -2514,7 +2640,7 @@ export default function MapScreen() {
               accessibilityRole="button"
               accessibilityLabel={showAllStopRoutes ? 'Show selected route only' : 'Show all stop times'}
             >
-              <Text style={[styles.filterToggleText, { color: c.tint }]}>
+              <Text style={[styles.filterToggleText, { color: c.tintText }]}>
                 {showAllStopRoutes ? 'Show Selected Route Only' : 'All Stop Times'}
               </Text>
             </TouchableOpacity>
@@ -2529,7 +2655,7 @@ export default function MapScreen() {
               switches to that day's full published schedule instead. */}
           {stopTimesLoading ? (
             <View style={styles.stopTimesCenter}>
-              <ActivityIndicator color={c.tint} />
+              <ActivityIndicator color={c.tintText} />
               <Text style={[styles.stopTimesHint, { color: c.textSecondary }]}>Loading departures…</Text>
             </View>
           ) : (
@@ -2587,7 +2713,7 @@ export default function MapScreen() {
                   {stopDate && (
                     stopScheduleLoading ? (
                       <View style={styles.stopTimesCenter}>
-                        <ActivityIndicator color={c.tint} />
+                        <ActivityIndicator color={c.tintText} />
                       </View>
                     ) : visibleStopTimes.length > 0 ? (
                       <FlatList
@@ -2611,7 +2737,7 @@ export default function MapScreen() {
 
       {/* ── Full-day schedule for a tapped route entry ───────────────────── */}
       {expandedEntry && (
-        <Modal visible transparent animationType="fade" onRequestClose={closeExpandedEntry}>
+        <Modal visible transparent animationType={reduceMotion ? 'none' : 'fade'} onRequestClose={closeExpandedEntry}>
           <TouchableOpacity
             style={styles.modalOverlay}
             activeOpacity={1}
@@ -2673,7 +2799,7 @@ export default function MapScreen() {
                     accessible
                     accessibilityLabel={`${formatTime(t.time)}${t.isCancelled ? ', cancelled' : isPast ? ', already departed' : isLiveEstimate ? ', live estimate' : ''}`}
                   >
-                    {isLiveEstimate && <View style={[styles.liveDot, { backgroundColor: c.tint }]} />}
+                    {isLiveEstimate && <View style={[styles.liveDot, { backgroundColor: c.tintText }]} />}
                     <Text style={[
                       styles.fullScheduleChipText,
                       t.isCancelled ? styles.fullScheduleChipTextCancelled : { color: isPast ? c.textSecondary : c.text },
@@ -2694,7 +2820,7 @@ export default function MapScreen() {
 
       {/* ── Fleet info card, opened by tapping a bus's number in its callout ── */}
       {fleetInfoBus && (
-        <Modal visible transparent animationType="fade" onRequestClose={closeFleetInfo}>
+        <Modal visible transparent animationType={reduceMotion ? 'none' : 'fade'} onRequestClose={closeFleetInfo}>
           <TouchableOpacity
             style={styles.modalOverlay}
             activeOpacity={1}
@@ -3332,7 +3458,7 @@ function TimeEntryRow({ item, routeColors, c, onPress }: { item: TimeEntry; rout
           return (
             <View key={i} style={[styles.timeChip, { backgroundColor: c.surfaceAlt }]}>
               {liveLabel !== null && (
-                <View style={[styles.liveDot, { backgroundColor: c.tint }]} />
+                <View style={[styles.liveDot, { backgroundColor: c.tintText }]} />
               )}
               <Text style={[
                 styles.timeChipText,
@@ -3345,7 +3471,7 @@ function TimeEntryRow({ item, routeColors, c, onPress }: { item: TimeEntry; rout
           );
         })}
         {times.length > 4 && (
-          <Text style={[styles.moreTimesHint, { color: c.tint }]}>+{times.length - 4} more</Text>
+          <Text style={[styles.moreTimesHint, { color: c.tintText }]}>+{times.length - 4} more</Text>
         )}
         {times.length === 0 && (
           <Text style={[styles.stopTimesHint, { color: c.textSecondary }]}>No times</Text>
@@ -3542,6 +3668,32 @@ const styles = StyleSheet.create({
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     marginTop: -1,
+  },
+  // Off-screen, not just invisible - same reasoning as
+  // lib/marker-image-factory.tsx's own capture host.
+  calloutCaptureHost: {
+    position: 'absolute',
+    top: -9999,
+    left: -9999,
+  },
+  // width matches `callout`'s own fixed 270, plus CALLOUT_SHADOW_PAD on each
+  // side so `callout`'s shadow (offset height 3, radius 8) has room to
+  // render instead of clipping at the capture bounds. No fixed height/
+  // bottom-justify trick the way calloutMarkerWrap needs - see this file's
+  // callout-Marker render comment for why that's unnecessary once the
+  // content is a static bitmap instead of a live composed-view snapshot.
+  calloutCaptureWrap: {
+    width: 270 + CALLOUT_SHADOW_PAD * 2,
+    paddingHorizontal: CALLOUT_SHADOW_PAD,
+    paddingTop: CALLOUT_SHADOW_PAD,
+    alignItems: 'center',
+  },
+  // Transparent clearance below the pointer tip so the baked image's bottom
+  // edge (the Marker's anchor point) sits just above the bus icon instead of
+  // dead-center on it - also doubles as bottom shadow bleed room, since
+  // `callout`'s shadow mostly bleeds downward (positive shadowOffset.height).
+  calloutCaptureGap: {
+    height: 20,
   },
 
   // Control panel

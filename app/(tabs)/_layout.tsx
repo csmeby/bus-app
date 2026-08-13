@@ -5,13 +5,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
+import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
+import { translate } from '@/lib/translations';
 
 export default function TabLayout() {
   const colors = useThemeColors();
   const { iconSize } = useAccessibility();
   const scale = ICON_SCALE[iconSize];
   const tabIconSize = Math.round(26 * scale);
+  // React Navigation renders tabBarLabel/title itself, not through
+  // ScaledText - has to be translated explicitly rather than picking it up
+  // automatically like everything else.
+  const { language } = useLanguage();
+  const t = (s: string) => translate(s, language);
   const insets = useSafeAreaInsets();
   // React Navigation's default tab bar height is a fixed constant that
   // never grows with tabBarIcon's own size - iOS's default happens to have
@@ -34,7 +41,7 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: colors.tint,
+        tabBarActiveTintColor: colors.tintText,
         tabBarInactiveTintColor: colors.tabIconDefault,
         tabBarStyle: {
           backgroundColor: colors.surface,
@@ -51,28 +58,28 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Map',
+          title: t('Map'),
           tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="map.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="plan"
         options={{
-          title: 'Plan',
+          title: t('Plan'),
           tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="arrow.triangle.turn.up.right.circle.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="calendar"
         options={{
-          title: 'Calendar',
+          title: t('Calendar'),
           tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="calendar" color={color} />,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
-          title: 'More',
+          title: t('More'),
           tabBarIcon: ({ color }) => <IconSymbol size={tabIconSize} name="line.3.horizontal" color={color} />,
         }}
       />
