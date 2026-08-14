@@ -36,7 +36,6 @@ import { useUnitCodes } from '@/context/unit-codes-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { API_BASE } from '@/lib/api-base';
 import { cachedJsonFetch } from '@/lib/local-cache';
-import { springOrJump } from '@/lib/motion';
 import { TourTarget } from '@/lib/tour-context';
 import routePatterns from '../../routes_patterns.json';
 
@@ -521,7 +520,7 @@ type RerouteDir = {
 export default function MapScreen() {
   const scheme = useColorScheme();
   const c = useThemeColors();
-  const { reduceMotion, iconSize: currentIconSize } = useAccessibility();
+  const { iconSize: currentIconSize } = useAccessibility();
   // Android has no Apple Maps to switch away from - it's always Google
   // Maps there. iOS honors the Settings > Map choice (see
   // context/map-provider-context.tsx); PROVIDER_DEFAULT there means Apple
@@ -715,11 +714,6 @@ export default function MapScreen() {
   useEffect(() => {
     stopSheetExpandedRef.current = stopSheetExpanded;
   }, [stopSheetExpanded]);
-  // Same reasoning, for the PanResponder's spring-back calls below.
-  const reduceMotionRef = useRef(false);
-  useEffect(() => {
-    reduceMotionRef.current = reduceMotion;
-  }, [reduceMotion]);
   // Monotonic tokens guarding the stop panel's async fetches: any newer fetch
   // (tapping another stop, another date chip, or closing the panel) bumps the
   // counter, so a slow in-flight response for the OLD stop/date can't land
@@ -1742,7 +1736,7 @@ export default function MapScreen() {
     // ever be JS-driven (PanResponder's gestureState is computed in JS, not
     // available to the native driver) - mixing drivers on one node throws
     // "Attempting to run JS driven animation on node ... moved to native".
-    springOrJump(stopPanelAnim, 1, { tension: 80, friction: 10, useNativeDriver: false }, reduceMotion);
+    Animated.spring(stopPanelAnim, { toValue: 1, tension: 80, friction: 10, useNativeDriver: false }).start();
 
     const relevantRoutes = stop.routes;
 
@@ -1779,7 +1773,7 @@ export default function MapScreen() {
       setStopTimesLoading(false);
       fetchStopSchedule(stop, toDateStr(new Date()));
     }
-  }, [stopPanelAnim, stopSheetDragY, selectedBusName, closeBusCallout, fetchStopSchedule, patchEntryFlags, reduceMotion]);
+  }, [stopPanelAnim, stopSheetDragY, selectedBusName, closeBusCallout, fetchStopSchedule, patchEntryFlags]);
 
   // Tapping a route row to "see all times for the day": when browsing a
   // specific date (stopDate set), the row already came from the full-day
@@ -1826,8 +1820,8 @@ export default function MapScreen() {
 
   const closeStopPanel = useCallback(() => {
     stopReqIdRef.current++; // drop in-flight times/schedule responses for the closed panel
-    springOrJump(stopPanelAnim, 0, { tension: 80, friction: 10, useNativeDriver: false }, reduceMotion, () => setSelectedStop(null));
-  }, [stopPanelAnim, reduceMotion]);
+    Animated.spring(stopPanelAnim, { toValue: 0, tension: 80, friction: 10, useNativeDriver: false }).start(() => setSelectedStop(null));
+  }, [stopPanelAnim]);
 
   // Swipe gesture on the stop sheet's drag handle: down past a threshold
   // dismisses (further still if already expanded, since there's more sheet
@@ -1842,7 +1836,7 @@ export default function MapScreen() {
       onPanResponderMove: Animated.event([null, { dy: stopSheetDragY }], { useNativeDriver: false }),
       onPanResponderRelease: (_evt, gesture) => {
         const expanded = stopSheetExpandedRef.current;
-        const spring = () => springOrJump(stopSheetDragY, 0, { tension: 80, friction: 10, useNativeDriver: false }, reduceMotionRef.current);
+        const spring = () => Animated.spring(stopSheetDragY, { toValue: 0, tension: 80, friction: 10, useNativeDriver: false }).start();
 
         // A near-motionless touch on the handle - tap to toggle instead of
         // requiring an actual drag at all.
@@ -1877,7 +1871,7 @@ export default function MapScreen() {
         spring();
       },
       onPanResponderTerminate: () => {
-        springOrJump(stopSheetDragY, 0, { tension: 80, friction: 10, useNativeDriver: false }, reduceMotionRef.current);
+        Animated.spring(stopSheetDragY, { toValue: 0, tension: 80, friction: 10, useNativeDriver: false }).start();
       },
     })
   ).current;
@@ -2102,7 +2096,7 @@ export default function MapScreen() {
             shown with a "?" and muted - still useful, but not
             presented as fact. */}
         {unitCodesEnabled && !!selectedBus.unit && (
-          <Text style={[styles.calloutUnit, { color: selectedBus.unitConfirmed ? c.textSecondary : c.tintText }]}>
+          <Text style={[styles.calloutUnit, { color: selectedBus.unitConfirmed ? c.textSecondary : c.tint }]}>
             {selectedBus.unit}{selectedBus.unitConfirmed ? '' : '?'}
           </Text>
         )}
@@ -2438,7 +2432,7 @@ export default function MapScreen() {
       </TourTarget>
 
       {/* ── Route selector modal ───────────────────────────────────────────── */}
-      <Modal visible={routePickerOpen} transparent animationType={reduceMotion ? 'none' : routePickerAnimation} onRequestClose={() => setRoutePickerOpen(false)}>
+      <Modal visible={routePickerOpen} transparent animationType={routePickerAnimation} onRequestClose={() => setRoutePickerOpen(false)}>
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
@@ -2451,7 +2445,7 @@ export default function MapScreen() {
           <View style={[styles.sheetHeader, { borderBottomColor: c.border }]}>
             <Text style={[styles.sheetTitle, { color: c.text }]} accessibilityRole="header">Select Routes</Text>
             <TouchableOpacity onPress={() => setRoutePickerOpen(false)} accessibilityRole="button" hitSlop={8}>
-              <Text style={[styles.sheetDone, { color: c.tintText }]}>Done</Text>
+              <Text style={[styles.sheetDone, { color: c.tint }]}>Done</Text>
             </TouchableOpacity>
           </View>
 
@@ -2476,7 +2470,7 @@ export default function MapScreen() {
               <Text style={[styles.routeTagText, { color: selectedRoutes.size === ALL_ROUTES.length ? '#fff' : c.textSecondary }]}>ALL</Text>
             </View>
             <Text style={[styles.routeName, { color: c.text }]}>All Routes</Text>
-            {selectedRoutes.size === ALL_ROUTES.length && <Text style={[styles.checkmark, { color: c.tintText }]}>✓</Text>}
+            {selectedRoutes.size === ALL_ROUTES.length && <Text style={[styles.checkmark, { color: c.tint }]}>✓</Text>}
           </TouchableOpacity>
 
           <FlatList
@@ -2640,7 +2634,7 @@ export default function MapScreen() {
               accessibilityRole="button"
               accessibilityLabel={showAllStopRoutes ? 'Show selected route only' : 'Show all stop times'}
             >
-              <Text style={[styles.filterToggleText, { color: c.tintText }]}>
+              <Text style={[styles.filterToggleText, { color: c.tint }]}>
                 {showAllStopRoutes ? 'Show Selected Route Only' : 'All Stop Times'}
               </Text>
             </TouchableOpacity>
@@ -2655,7 +2649,7 @@ export default function MapScreen() {
               switches to that day's full published schedule instead. */}
           {stopTimesLoading ? (
             <View style={styles.stopTimesCenter}>
-              <ActivityIndicator color={c.tintText} />
+              <ActivityIndicator color={c.tint} />
               <Text style={[styles.stopTimesHint, { color: c.textSecondary }]}>Loading departures…</Text>
             </View>
           ) : (
@@ -2713,7 +2707,7 @@ export default function MapScreen() {
                   {stopDate && (
                     stopScheduleLoading ? (
                       <View style={styles.stopTimesCenter}>
-                        <ActivityIndicator color={c.tintText} />
+                        <ActivityIndicator color={c.tint} />
                       </View>
                     ) : visibleStopTimes.length > 0 ? (
                       <FlatList
@@ -2737,7 +2731,7 @@ export default function MapScreen() {
 
       {/* ── Full-day schedule for a tapped route entry ───────────────────── */}
       {expandedEntry && (
-        <Modal visible transparent animationType={reduceMotion ? 'none' : 'fade'} onRequestClose={closeExpandedEntry}>
+        <Modal visible transparent animationType="fade" onRequestClose={closeExpandedEntry}>
           <TouchableOpacity
             style={styles.modalOverlay}
             activeOpacity={1}
@@ -2799,7 +2793,7 @@ export default function MapScreen() {
                     accessible
                     accessibilityLabel={`${formatTime(t.time)}${t.isCancelled ? ', cancelled' : isPast ? ', already departed' : isLiveEstimate ? ', live estimate' : ''}`}
                   >
-                    {isLiveEstimate && <View style={[styles.liveDot, { backgroundColor: c.tintText }]} />}
+                    {isLiveEstimate && <View style={[styles.liveDot, { backgroundColor: c.tint }]} />}
                     <Text style={[
                       styles.fullScheduleChipText,
                       t.isCancelled ? styles.fullScheduleChipTextCancelled : { color: isPast ? c.textSecondary : c.text },
@@ -2820,7 +2814,7 @@ export default function MapScreen() {
 
       {/* ── Fleet info card, opened by tapping a bus's number in its callout ── */}
       {fleetInfoBus && (
-        <Modal visible transparent animationType={reduceMotion ? 'none' : 'fade'} onRequestClose={closeFleetInfo}>
+        <Modal visible transparent animationType="fade" onRequestClose={closeFleetInfo}>
           <TouchableOpacity
             style={styles.modalOverlay}
             activeOpacity={1}
@@ -3295,6 +3289,85 @@ function StopMarker({
   }, [zoomSettleToken]);
 
   const baseIconSize = stop.isTemporary ? 20 : isTimepoint ? 17 : 26;
+  const badgeVariant = stop.isTemporary ? 'temp' : isTimepoint ? 'timepoint' : 'stop';
+  const badgeSource = stop.isTemporary
+    ? require('../../assets/images/temp_stop/temp_stop.png')
+    : isTimepoint
+    ? require('../../assets/images/timepoint/timepoint.png')
+    : require('../../assets/images/stop/stop.png');
+
+  // iOS's Google Maps SDK never rasterizes a composed-View Marker at all
+  // (see lib/marker-image-factory.tsx's own writeup) - the badged path below
+  // is exactly that (an Image plus an absolutely-positioned badge dot/X), so
+  // on iOS+Google it silently never painted, leaving closed/unserved stops
+  // invisible there while working fine on Apple Maps and Android Google Maps
+  // (both already covered by the branch below). Bounded to a handful of
+  // distinct combos (icon variant x accessibility icon scale x closed vs
+  // unserved) - unlike the bus callout's live poll data, this is a good fit
+  // for the shared marker-image-factory cache.
+  const badgeImageKey = Platform.OS === 'ios' && isGoogleMaps
+    ? `stop-badge-${badgeVariant}-${isUnserved ? 'unserved' : 'closed'}-${scale}`
+    : null;
+  const badgeImageUri = useMarkerImage(badgeImageKey, () => (
+    <View style={[styles.closedStopWrap, { width: 30 * scale, height: 30 * scale }]}>
+      <Image
+        source={badgeSource}
+        style={[
+          stop.isTemporary ? styles.tempStopIcon : isTimepoint ? styles.timepointIcon : styles.stopIcon,
+          styles.closedStopIcon,
+          { width: baseIconSize * scale, height: baseIconSize * scale },
+        ]}
+      />
+      {isUnserved && (
+        <View style={[styles.unservedStopBadge, { width: 14 * scale, height: 14 * scale, borderRadius: 7 * scale }]}>
+          <Text style={[styles.unservedStopBadgeText, { fontSize: 8 * scale }]}>✕</Text>
+        </View>
+      )}
+      {isClosed && !isUnserved && (
+        <View style={[styles.closedStopBadge, { width: 10 * scale, height: 10 * scale, borderRadius: 5 * scale }]} />
+      )}
+    </View>
+  ), 30 * scale, 30 * scale);
+
+  if (badged && Platform.OS === 'ios' && isGoogleMaps) {
+    return (
+      <Marker
+        coordinate={stop.coordinate}
+        anchor={{ x: 0.5, y: 0.5 }}
+        tracksViewChanges={!badgeImageUri}
+        opacity={isVisible ? 1 : 0}
+        tappable={isVisible}
+        zIndex={0}
+        onPress={() => isVisible && onPress()}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel={`${stop.name}, ${stop.isTemporary ? 'temporary bus stop' : isTimepoint ? 'timepoint bus stop' : 'bus stop'}${isUnserved ? ', not served right now due to a detour' : ', closed'}`}
+        accessibilityHint="Shows departure times for this stop"
+        {...(badgeImageUri ? { image: { uri: badgeImageUri } } : {})}
+      >
+        {!badgeImageUri && (
+          <View style={[styles.closedStopWrap, { width: 30 * scale, height: 30 * scale }]}>
+            <Image
+              source={badgeSource}
+              style={[
+                stop.isTemporary ? styles.tempStopIcon : isTimepoint ? styles.timepointIcon : styles.stopIcon,
+                styles.closedStopIcon,
+                { width: baseIconSize * scale, height: baseIconSize * scale },
+              ]}
+            />
+            {isUnserved && (
+              <View style={[styles.unservedStopBadge, { width: 14 * scale, height: 14 * scale, borderRadius: 7 * scale }]}>
+                <Text style={[styles.unservedStopBadgeText, { fontSize: 8 * scale }]}>✕</Text>
+              </View>
+            )}
+            {isClosed && !isUnserved && (
+              <View style={[styles.closedStopBadge, { width: 10 * scale, height: 10 * scale, borderRadius: 5 * scale }]} />
+            )}
+          </View>
+        )}
+      </Marker>
+    );
+  }
 
   // Unbadged path: no composed child view at all, so there's nothing for
   // Fabric to race/snapshot-lock in the first place - see this function's
@@ -3458,7 +3531,7 @@ function TimeEntryRow({ item, routeColors, c, onPress }: { item: TimeEntry; rout
           return (
             <View key={i} style={[styles.timeChip, { backgroundColor: c.surfaceAlt }]}>
               {liveLabel !== null && (
-                <View style={[styles.liveDot, { backgroundColor: c.tintText }]} />
+                <View style={[styles.liveDot, { backgroundColor: c.tint }]} />
               )}
               <Text style={[
                 styles.timeChipText,
@@ -3471,7 +3544,7 @@ function TimeEntryRow({ item, routeColors, c, onPress }: { item: TimeEntry; rout
           );
         })}
         {times.length > 4 && (
-          <Text style={[styles.moreTimesHint, { color: c.tintText }]}>+{times.length - 4} more</Text>
+          <Text style={[styles.moreTimesHint, { color: c.tint }]}>+{times.length - 4} more</Text>
         )}
         {times.length === 0 && (
           <Text style={[styles.stopTimesHint, { color: c.textSecondary }]}>No times</Text>

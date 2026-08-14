@@ -17,8 +17,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BTD_TINT } from '@/constants/btd-theme';
 import { DARK_MAP_STYLE } from '@/constants/theme';
 import { ICON_SCALE, useAccessibility } from '@/context/accessibility-context';
+import { useFavorites } from '@/context/favorites-context';
 import { useLanguage } from '@/context/language-context';
-import { springOrJump } from '@/lib/motion';
 import { GOOGLE_MAPS_IOS_READY, useMapProvider } from '@/context/map-provider-context';
 import { useThemeColors } from '@/context/theme-context';
 import { ScaledText as Text } from '@/components/scaled-text';
@@ -155,9 +155,10 @@ export default function BtdMapScreen() {
   const scheme = useColorScheme();
   const c = useThemeColors();
   const tint = BTD_TINT[scheme];
-  const { iconSize, reduceMotion } = useAccessibility();
+  const { iconSize } = useAccessibility();
   const { language } = useLanguage();
   const t = (s: string) => translate(s, language);
+  const { isFavorite } = useFavorites();
   const iconScale = ICON_SCALE[iconSize];
   // See app/(tabs)/index.tsx's own comment on this same pattern.
   const { mapProvider } = useMapProvider();
@@ -203,8 +204,19 @@ export default function BtdMapScreen() {
   const isWeekday = now.getDay() >= 1 && now.getDay() <= 5;
 
   // Check if all routes are selected
-  const allSelected = selectedRoutes.length === ALL_BTD_ROUTES.length && 
+  const allSelected = selectedRoutes.length === ALL_BTD_ROUTES.length &&
     selectedRoutes.every(r => ALL_BTD_ROUTES.includes(r));
+
+  // Favorited routes (set in Favorite Routes) float to the top of the picker -
+  // see app/(tabs)/index.tsx's own sortedRoutes for the AggieSpirit mirror
+  // of this same pattern.
+  const sortedBtdRoutes = useMemo(() => {
+    return [...ALL_BTD_ROUTES].sort((a, b) => {
+      const aFav = isFavorite(a, 'btd') ? 0 : 1;
+      const bFav = isFavorite(b, 'btd') ? 0 : 1;
+      return aFav - bFav;
+    });
+  }, [isFavorite]);
 
   const toggleRoute = (route: string) => {
     if (route === 'all') {
@@ -439,12 +451,12 @@ export default function BtdMapScreen() {
   const openStop = useCallback((stop: MergedStop) => {
     setNowTick(Date.now()); // fresh "now" the moment it opens, not up to 30s stale
     setSelectedStop(stop);
-    springOrJump(stopSheetAnim, 1, { tension: 80, friction: 10, useNativeDriver: true }, reduceMotion);
-  }, [stopSheetAnim, reduceMotion]);
+    Animated.spring(stopSheetAnim, { toValue: 1, tension: 80, friction: 10, useNativeDriver: true }).start();
+  }, [stopSheetAnim]);
 
   const closeStop = useCallback(() => {
-    springOrJump(stopSheetAnim, 0, { tension: 80, friction: 10, useNativeDriver: true }, reduceMotion, () => setSelectedStop(null));
-  }, [stopSheetAnim, reduceMotion]);
+    Animated.spring(stopSheetAnim, { toValue: 0, tension: 80, friction: 10, useNativeDriver: true }).start(() => setSelectedStop(null));
+  }, [stopSheetAnim]);
 
   return (
     <View style={styles.root}>
@@ -544,7 +556,7 @@ export default function BtdMapScreen() {
       </View>
 
       {/* ── Route selector modal ───────────────────────────────────────────── */}
-      <Modal visible={dropdownVisible} transparent animationType={reduceMotion ? 'none' : 'slide'} onRequestClose={() => setDropdownVisible(false)}>
+      <Modal visible={dropdownVisible} transparent animationType="slide" onRequestClose={() => setDropdownVisible(false)}>
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
@@ -576,17 +588,18 @@ export default function BtdMapScreen() {
           </TouchableOpacity>
 
           <FlatList
-            data={ALL_BTD_ROUTES}
+            data={sortedBtdRoutes}
             keyExtractor={item => item}
             renderItem={({ item }) => {
               const selected = selectedRoutes.includes(item) || allSelected;
               const route = btdRoutes[item];
+              const fav = isFavorite(item, 'btd');
               return (
                 <TouchableOpacity
                   style={[styles.routeRow, selected && { backgroundColor: tint + '15' }, { borderBottomColor: c.border }]}
                   onPress={() => toggleRoute(item)}
                   accessibilityRole="checkbox"
-                  accessibilityLabel={`${route.name} route, via ${prettyTerminal(route.terminal)}`}
+                  accessibilityLabel={`${route.name} route, via ${prettyTerminal(route.terminal)}${fav ? ', favorite' : ''}`}
                   accessibilityState={{ checked: selected }}
                 >
                   {/* Tag keeps the route's brand color even unselected — BTD
@@ -601,6 +614,7 @@ export default function BtdMapScreen() {
                       via {prettyTerminal(route.terminal)}
                     </Text>
                   </View>
+                  {fav && <Text style={styles.favoriteStar}>★</Text>}
                   {selected && <Text style={[styles.checkmark, { color: route.color }]}>✓</Text>}
                 </TouchableOpacity>
               );
@@ -861,6 +875,7 @@ const styles = StyleSheet.create({
   routeName: { fontSize: 15 },
   routeTerminal: { fontSize: 12, marginTop: 1 },
   checkmark: { fontSize: 16, fontWeight: '700' },
+  favoriteStar: { fontSize: 14, color: '#F59E0B' },
 
   stopSheet: {
     position: 'absolute', bottom: 0, left: 0, right: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22,

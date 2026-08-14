@@ -136,7 +136,7 @@ export default function HelpScreen() {
               <Paragraphs text={t(item.body)} color={c.textSecondary} />
               {!!item.tip && (
                 <View style={[styles.tipCallout, { backgroundColor: c.surfaceAlt, borderLeftColor: c.tint }]}>
-                  <Text style={[styles.tipCalloutLabel, { color: c.tintText }]}>{t('TIP')}</Text>
+                  <Text style={[styles.tipCalloutLabel, { color: c.tint }]}>{t('TIP')}</Text>
                   <Text style={[styles.tipCalloutText, { color: c.textSecondary }]}>{t(item.tip)}</Text>
                 </View>
               )}

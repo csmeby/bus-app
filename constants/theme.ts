@@ -1,11 +1,5 @@
 export const BRAND_MAROON = '#A24857';
 
-// tint vs tintText: `tint` is tuned as a FILL color (solid buttons, active
-// icons) that stays legible under white text/glyphs on top of it. On dark
-// backgrounds that same value is too low-contrast to use as the text/icon
-// *color* sitting directly on background/surface (fails WCAG AA 4.5:1) -
-// `tintText` is a lightened variant reserved for that case. In light mode
-// the brand color already clears 4.5:1 both ways, so the two are identical.
 export const Colors = {
   light: {
     text: '#202020',
@@ -15,7 +9,6 @@ export const Colors = {
     surfaceAlt: '#F0F0F2',
     border: '#E5E5EA',
     tint: BRAND_MAROON,
-    tintText: BRAND_MAROON,
     tabIconDefault: '#687076',
   },
   dark: {
@@ -26,7 +19,6 @@ export const Colors = {
     surfaceAlt: '#2C2C2E',
     border: '#3A3A3C',
     tint: '#A24857',
-    tintText: '#C0727F',
     tabIconDefault: '#9BA1A6',
   },
 };
@@ -46,7 +38,6 @@ export const HighContrastColors = {
     surfaceAlt: '#E2E2E2',
     border: '#000000',
     tint: '#7A0018',
-    tintText: '#7A0018',
     tabIconDefault: '#000000',
   },
   dark: {
@@ -56,8 +47,7 @@ export const HighContrastColors = {
     surface: '#000000',
     surfaceAlt: '#242424',
     border: '#FFFFFF',
-    tint: '#FF6B85',
-    tintText: '#FF6B85',
+    tint: '#C2455C',
     tabIconDefault: '#FFFFFF',
   },
 };

@@ -205,6 +205,7 @@ export const TRANSLATIONS: Partial<Record<LanguageCode, Record<string, string>>>
     'Select Routes': 'Seleccionar rutas',
     'Dismiss route picker': 'Cerrar selector de rutas',
     'Settings': 'Configuración',
+    'Map Provider': 'Proveedor de mapas',
     'Theme, Language, and Accessibility': 'Tema, idioma y accesibilidad',
 
     // ── Tour, Help Guide, and misc (new) ────────────────────────────────
@@ -497,6 +498,7 @@ export const TRANSLATIONS: Partial<Record<LanguageCode, Record<string, string>>>
     'Select Routes': '选择路线',
     'Dismiss route picker': '关闭路线选择器',
     'Settings': '设置',
+    'Map Provider': '地图提供方',
     'Theme, Language, and Accessibility': '主题、语言和辅助功能',
 
     // ── Tour, Help Guide, and misc (new) ────────────────────────────────
@@ -785,6 +787,7 @@ export const TRANSLATIONS: Partial<Record<LanguageCode, Record<string, string>>>
     'Select Routes': 'रूट चुनें',
     'Dismiss route picker': 'रूट चयनकर्ता बंद करें',
     'Settings': 'सेटिंग्स',
+    'Map Provider': 'मानचित्र प्रदाता',
     'Theme, Language, and Accessibility': 'थीम, भाषा और सुलभता',
 
     // ── Tour, Help Guide, and misc (new) ────────────────────────────────
@@ -1073,6 +1076,7 @@ export const TRANSLATIONS: Partial<Record<LanguageCode, Record<string, string>>>
     'Select Routes': 'Chọn tuyến',
     'Dismiss route picker': 'Đóng bộ chọn tuyến',
     'Settings': 'Cài đặt',
+    'Map Provider': 'Nhà cung cấp bản đồ',
     'Theme, Language, and Accessibility': 'Giao diện, Ngôn ngữ và Trợ năng',
 
     // ── Tour, Help Guide, and misc (new) ────────────────────────────────
@@ -1361,6 +1365,7 @@ export const TRANSLATIONS: Partial<Record<LanguageCode, Record<string, string>>>
     'Select Routes': '노선 선택',
     'Dismiss route picker': '노선 선택 닫기',
     'Settings': '설정',
+    'Map Provider': '지도 제공업체',
     'Theme, Language, and Accessibility': '테마, 언어 및 접근성',
 
     // ── Tour, Help Guide, and misc (new) ────────────────────────────────
@@ -1653,6 +1658,7 @@ export const TRANSLATIONS: Partial<Record<LanguageCode, Record<string, string>>>
     'Select Routes': 'اختيار الخطوط',
     'Dismiss route picker': 'إغلاق أداة اختيار الخطوط',
     'Settings': 'الإعدادات',
+    'Map Provider': 'مزوّد الخرائط',
     'Theme, Language, and Accessibility': 'المظهر واللغة وإمكانية الوصول',
 
     // ── Tour, Help Guide, and misc (new) ────────────────────────────────
@@ -1941,6 +1947,7 @@ export const TRANSLATIONS: Partial<Record<LanguageCode, Record<string, string>>>
     'Select Routes': 'Sélectionner des lignes',
     'Dismiss route picker': 'Fermer le sélecteur de lignes',
     'Settings': 'Paramètres',
+    'Map Provider': 'Fournisseur de carte',
     'Theme, Language, and Accessibility': 'Thème, langue et accessibilité',
 
     // ── Tour, Help Guide, and misc (new) ────────────────────────────────
@@ -2229,6 +2236,7 @@ export const TRANSLATIONS: Partial<Record<LanguageCode, Record<string, string>>>
     'Select Routes': 'Pumili ng mga Ruta',
     'Dismiss route picker': 'Isara ang route picker',
     'Settings': 'Mga Setting',
+    'Map Provider': 'Provider ng Mapa',
     'Theme, Language, and Accessibility': 'Tema, Wika, at Accessibility',
 
     // ── Tour, Help Guide, and misc (new) ────────────────────────────────
@@ -2517,6 +2525,7 @@ export const TRANSLATIONS: Partial<Record<LanguageCode, Record<string, string>>>
     'Select Routes': 'Selecionar Rotas',
     'Dismiss route picker': 'Fechar seletor de rotas',
     'Settings': 'Configurações',
+    'Map Provider': 'Provedor de mapa',
     'Theme, Language, and Accessibility': 'Tema, idioma e acessibilidade',
 
     // ── Tour, Help Guide, and misc (new) ────────────────────────────────

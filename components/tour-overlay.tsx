@@ -2,7 +2,6 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, Dimensions, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ScaledText as Text } from '@/components/scaled-text';
-import { useAccessibility } from '@/context/accessibility-context';
 import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
 import { TOUR_STEPS, useTour } from '@/lib/tour-context';
@@ -37,7 +36,6 @@ function Spotlight({ rect, color }: { rect: { x: number; y: number; width: numbe
 export function TourOverlay() {
   const { step, stepIndex, rect, nextStep, skipTour } = useTour();
   const c = useThemeColors();
-  const { reduceMotion } = useAccessibility();
   const { language } = useLanguage();
   const t = (s: string) => translate(s, language);
   const tooltipOpacity = useRef(new Animated.Value(0)).current;
@@ -53,12 +51,9 @@ export function TourOverlay() {
 
   useEffect(() => {
     if (rect) {
-      // Reduce Motion (see context/accessibility-context.tsx) skips the fade
-      // entirely rather than just shortening it - jumping straight to fully
-      // visible is still an instant state change, but not a moving one.
-      Animated.timing(tooltipOpacity, { toValue: 1, duration: reduceMotion ? 0 : 180, useNativeDriver: true }).start();
+      Animated.timing(tooltipOpacity, { toValue: 1, duration: 180, useNativeDriver: true }).start();
     }
-  }, [rect, tooltipOpacity, reduceMotion]);
+  }, [rect, tooltipOpacity]);
 
   if (!step || stepIndex === null) return null;
 

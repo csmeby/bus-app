@@ -82,7 +82,7 @@ export default function MoreScreen() {
         accessibilityLabel={t(item.label)}
         accessibilityHint={t(item.description)}
       >
-        <MaterialIcons name={item.icon} size={rowIconSize} color={c.tintText} style={styles.rowIcon} />
+        <MaterialIcons name={item.icon} size={rowIconSize} color={c.tint} style={styles.rowIcon} />
         <View style={styles.rowText}>
           <Text style={[styles.rowLabel, { color: c.text }]}>{item.label}</Text>
           <Text style={[styles.rowDesc, { color: c.textSecondary }]}>{item.description}</Text>
@@ -116,9 +116,9 @@ export default function MoreScreen() {
 
       <View style={[styles.card, styles.spacedCard, { backgroundColor: c.surface, borderColor: c.border }]}>
         <View style={styles.row}>
-          <MaterialIcons name="badge" size={rowIconSize} color={c.tintText} style={styles.rowIcon} />
+          <MaterialIcons name="badge" size={rowIconSize} color={c.tint} style={styles.rowIcon} />
           <View style={styles.rowText}>
-            <Text style={[styles.rowLabel, { color: c.text }]}>Unit Codes <Text style={{ color: c.tintText }}>(Experimental)</Text></Text>
+            <Text style={[styles.rowLabel, { color: c.text }]}>Unit Codes <Text style={{ color: c.tint }}>(Experimental)</Text></Text>
             <Text style={[styles.rowDesc, { color: c.textSecondary }]}>
               Shows each unit&apos;s letter code (Alpha, Bravo, ...).
             </Text>
@@ -141,7 +141,7 @@ export default function MoreScreen() {
           accessibilityLabel={t('Brazos Transit District')}
           accessibilityHint={t("Switch to BTD's bus service")}
         >
-          <MaterialIcons name="swap-horiz" size={rowIconSize} color={c.tintText} style={styles.rowIcon} />
+          <MaterialIcons name="swap-horiz" size={rowIconSize} color={c.tint} style={styles.rowIcon} />
           <View style={styles.rowText}>
             <Text style={[styles.rowLabel, { color: c.text }]}>Brazos Transit District</Text>
             <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Switch to BTD&apos;s bus service</Text>
@@ -150,7 +150,7 @@ export default function MoreScreen() {
         </TouchableOpacity>
 
         <View style={styles.row}>
-          <MaterialIcons name="rocket-launch" size={rowIconSize} color={c.tintText} style={styles.rowIcon} />
+          <MaterialIcons name="rocket-launch" size={rowIconSize} color={c.tint} style={styles.rowIcon} />
           <View style={styles.rowText}>
             <Text style={[styles.rowLabel, { color: c.text }]}>Load into BTD</Text>
             <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Open straight to BTD instead of the map when you start the app</Text>
@@ -172,7 +172,7 @@ export default function MoreScreen() {
         accessibilityLabel={t('Replay Tutorial')}
         accessibilityHint={t('Watch the first-launch walkthrough again')}
       >
-        <MaterialIcons name="replay" size={rowIconSize} color={c.tintText} style={styles.rowIcon} />
+        <MaterialIcons name="replay" size={rowIconSize} color={c.tint} style={styles.rowIcon} />
         <View style={styles.rowText}>
           <Text style={[styles.rowLabel, { color: c.text }]}>Replay Tutorial</Text>
           <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Watch the first-launch walkthrough again</Text>

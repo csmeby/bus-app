@@ -69,7 +69,7 @@ function TimeField({
 
 export default function NotificationsScreen() {
   const c = useThemeColors();
-  const { favorites } = useFavorites();
+  const { isFavorite } = useFavorites();
   const { language } = useLanguage();
   const t = (s: string) => translate(s, language);
 
@@ -202,8 +202,8 @@ export default function NotificationsScreen() {
   // Favorites first, in the add-a-route picker, so the routes someone's
   // actually likely to want are one tap away instead of buried in the list.
   const sortedAddable = [...addableRoutes].sort((a, b) => {
-    const af = favorites.includes(a) ? 0 : 1;
-    const bf = favorites.includes(b) ? 0 : 1;
+    const af = isFavorite(a) ? 0 : 1;
+    const bf = isFavorite(b) ? 0 : 1;
     return af - bf;
   });
 
@@ -375,8 +375,8 @@ export default function NotificationsScreen() {
                           accessibilityRole="button"
                           accessibilityLabel="Add another window"
                         >
-                          <MaterialIcons name="add" size={16} color={c.tintText} />
-                          <Text style={[styles.inlineBtnText, { color: c.tintText }]}>Add another window</Text>
+                          <MaterialIcons name="add" size={16} color={c.tint} />
+                          <Text style={[styles.inlineBtnText, { color: c.tint }]}>Add another window</Text>
                         </TouchableOpacity>
                       )}
 
@@ -408,10 +408,10 @@ export default function NotificationsScreen() {
                       style={[styles.routeChip, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}
                       onPress={() => addRoute(route)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Add route ${route}${favorites.includes(route) ? ', favorite' : ''}`}
+                      accessibilityLabel={`Add route ${route}${isFavorite(route) ? ', favorite' : ''}`}
                       hitSlop={7}
                     >
-                      {favorites.includes(route) && <Text style={{ fontSize: 11 }}>★ </Text>}
+                      {isFavorite(route) && <Text style={{ fontSize: 11 }}>★ </Text>}
                       <Text style={[styles.routeChipText, { color: c.text }]}>{route}</Text>
                     </TouchableOpacity>
                   ))}

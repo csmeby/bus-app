@@ -340,7 +340,7 @@ function LocationField({
               accessibilityRole="button"
               accessibilityLabel={`${stop.name}, bus stop, route${stop.routes.length > 1 ? 's' : ''} ${stop.routes.join(', ')}`}
             >
-              <MaterialIcons name="directions-bus" size={16} color={c.tintText} />
+              <MaterialIcons name="directions-bus" size={16} color={c.tint} />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.resultName, { color: c.text }]} numberOfLines={1}>{stop.name}</Text>
                 <Text style={[styles.resultSub, { color: c.textSecondary }]} numberOfLines={1}>
@@ -356,7 +356,7 @@ function LocationField({
 
           {searching && placeMatches.length === 0 && (
             <View style={styles.resultRow}>
-              <ActivityIndicator size="small" color={c.tintText} />
+              <ActivityIndicator size="small" color={c.tint} />
               <Text style={[styles.resultSub, { color: c.textSecondary }]}>Searching nearby places…</Text>
             </View>
           )}
@@ -576,7 +576,7 @@ export default function PlanRideScreen() {
               accessibilityLabel="Use current location"
               accessibilityState={{ disabled: locating, busy: locating }}
             >
-              {locating ? <ActivityIndicator size="small" color={c.tintText} /> : <MaterialIcons name="my-location" size={16} color={c.tintText} />}
+              {locating ? <ActivityIndicator size="small" color={c.tint} /> : <MaterialIcons name="my-location" size={16} color={c.tint} />}
               <Text style={[styles.choiceBtnText, { color: c.text }]}>Current Location</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -586,7 +586,7 @@ export default function PlanRideScreen() {
               accessibilityRole="button"
               accessibilityLabel="Choose starting point on map"
             >
-              <MaterialIcons name="map" size={16} color={c.tintText} />
+              <MaterialIcons name="map" size={16} color={c.tint} />
               <Text style={[styles.choiceBtnText, { color: c.text }]}>Choose on Map</Text>
             </TouchableOpacity>
           </View>
@@ -605,8 +605,8 @@ export default function PlanRideScreen() {
             accessibilityLabel="Swap starting point and destination"
             accessibilityState={{ disabled: !origin && !destination }}
           >
-            <MaterialIcons name="swap-vert" size={16} color={(origin || destination) ? c.tintText : c.border} />
-            <Text style={[styles.swapBtnText, { color: (origin || destination) ? c.tintText : c.border }]}>Swap</Text>
+            <MaterialIcons name="swap-vert" size={16} color={(origin || destination) ? c.tint : c.border} />
+            <Text style={[styles.swapBtnText, { color: (origin || destination) ? c.tint : c.border }]}>Swap</Text>
           </TouchableOpacity>
         </View>
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
@@ -626,7 +626,7 @@ export default function PlanRideScreen() {
               accessibilityRole="button"
               accessibilityLabel="Choose destination on map"
             >
-              <MaterialIcons name="map" size={16} color={c.tintText} />
+              <MaterialIcons name="map" size={16} color={c.tint} />
               <Text style={[styles.choiceBtnText, { color: c.text }]}>Choose on Map</Text>
             </TouchableOpacity>
           </View>
@@ -642,7 +642,7 @@ export default function PlanRideScreen() {
           accessibilityLabel={`Travel date, currently ${selectedDate.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`}
           accessibilityHint="Opens the date picker"
         >
-          <MaterialIcons name="calendar-today" size={18} color={c.tintText} />
+          <MaterialIcons name="calendar-today" size={18} color={c.tint} />
           <Text style={[styles.dateRowText, { color: c.text }]}>{formatDateLabel(selectedDate)}</Text>
           <Text style={[styles.dateRowSub, { color: c.textSecondary }]}>
             {selectedDate.toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' })}
@@ -667,7 +667,7 @@ export default function PlanRideScreen() {
                 accessibilityLabel={`Leave after, currently ${departTime ? formatTimeLabel(departTime) : 'anytime'}`}
                 accessibilityHint="Opens the time picker"
               >
-                <MaterialIcons name="schedule" size={15} color={departTime ? c.tintText : c.textSecondary} />
+                <MaterialIcons name="schedule" size={15} color={departTime ? c.tint : c.textSecondary} />
                 <Text style={[styles.timeChipText, { color: departTime ? c.text : c.textSecondary }]}>
                   {departTime ? formatTimeLabel(departTime) : 'Anytime'}
                 </Text>
@@ -697,7 +697,7 @@ export default function PlanRideScreen() {
                 accessibilityLabel={`Arrive by, currently ${arriveTime ? formatTimeLabel(arriveTime) : 'no deadline'}`}
                 accessibilityHint="Opens the time picker"
               >
-                <MaterialIcons name="schedule" size={15} color={arriveTime ? c.tintText : c.textSecondary} />
+                <MaterialIcons name="schedule" size={15} color={arriveTime ? c.tint : c.textSecondary} />
                 <Text style={[styles.timeChipText, { color: arriveTime ? c.text : c.textSecondary }]}>
                   {arriveTime ? formatTimeLabel(arriveTime) : 'No deadline'}
                 </Text>
@@ -967,7 +967,7 @@ export default function PlanRideScreen() {
                 </TouchableOpacity>
                 <Text style={[styles.sheetTitle, { color: c.text }]} accessibilityRole="header">Choose a date</Text>
                 <TouchableOpacity onPress={() => setShowDatePicker(false)} accessibilityRole="button" hitSlop={8}>
-                  <Text style={[styles.sheetDone, { color: c.tintText }]}>Done</Text>
+                  <Text style={[styles.sheetDone, { color: c.tint }]}>Done</Text>
                 </TouchableOpacity>
               </View>
               <DateTimePicker
@@ -1006,7 +1006,7 @@ export default function PlanRideScreen() {
                     setShowIOSTimeSheet(false);
                   }}
                 >
-                  <Text style={[styles.sheetDone, { color: c.tintText }]}>Done</Text>
+                  <Text style={[styles.sheetDone, { color: c.tint }]}>Done</Text>
                 </TouchableOpacity>
               </View>
               <DateTimePicker

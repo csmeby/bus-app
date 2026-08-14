@@ -66,9 +66,9 @@ function SliderRow<T extends string>({
         step={1}
         value={currentIndex >= 0 ? currentIndex : 2}
         onValueChange={index => onChange(options[index])}
-        minimumTrackTintColor={c.tintText}
+        minimumTrackTintColor={c.tint}
         maximumTrackTintColor={c.border}
-        thumbTintColor={c.tintText}
+        thumbTintColor={c.tint}
         accessibilityLabel={t(label)}
         accessibilityValue={{ min: 0, max: options.length - 1, now: currentIndex >= 0 ? currentIndex : 2, text: t(labels[value]) }}
       />
@@ -89,8 +89,6 @@ export default function AccessibilityScreen() {
     setTextSize,
     highContrast,
     setHighContrast,
-    reduceMotion,
-    setReduceMotion,
   } = useAccessibility();
   const { language } = useLanguage();
   const t = (s: string) => translate(s, language);
@@ -132,7 +130,7 @@ export default function AccessibilityScreen() {
           />
         </View>
 
-        <View style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}>
+        <View style={styles.row}>
           <View style={styles.rowText}>
             <Text style={[styles.rowLabel, { color: c.text }]}>{t('High Contrast')}</Text>
             <Text style={[styles.rowDesc, { color: c.textSecondary }]}>
@@ -144,21 +142,6 @@ export default function AccessibilityScreen() {
             onValueChange={setHighContrast}
             accessibilityLabel={t('High Contrast')}
             accessibilityHint={t('Uses a stronger-contrast color palette throughout the app')}
-          />
-        </View>
-
-        <View style={styles.row}>
-          <View style={styles.rowText}>
-            <Text style={[styles.rowLabel, { color: c.text }]}>{t('Reduce Motion')}</Text>
-            <Text style={[styles.rowDesc, { color: c.textSecondary }]}>
-              {t('Shortens or removes animations like the tour and panel slides.')}
-            </Text>
-          </View>
-          <Switch
-            value={reduceMotion}
-            onValueChange={setReduceMotion}
-            accessibilityLabel={t('Reduce Motion')}
-            accessibilityHint={t("Shortens or removes the app's animations")}
           />
         </View>
       </View>

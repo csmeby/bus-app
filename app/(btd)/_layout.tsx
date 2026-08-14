@@ -77,6 +77,7 @@ export default function BtdTabLayout() {
           matching how AggieSpirit's own Help Guide lives as a More row
           instead of a tab. */}
       <Tabs.Screen name="info" options={{ href: null }} />
+      <Tabs.Screen name="route-favorites" options={{ href: null }} />
       <Tabs.Screen
         name="more"
         options={{

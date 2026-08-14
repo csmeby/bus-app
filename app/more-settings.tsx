@@ -24,7 +24,7 @@ const SETTINGS_ITEMS: SettingsItem[] = [
   { href: '/theme', icon: 'brightness-6', label: 'Theme', description: 'Light, dark, or follow system' },
   { href: '/language', icon: 'translate', label: 'Language', description: 'Choose your language' },
   ...(Platform.OS === 'ios'
-    ? [{ href: '/map-provider', icon: 'map' as IconName, label: 'Map', description: 'Apple Maps or Google Maps' }]
+    ? [{ href: '/map-provider', icon: 'map' as IconName, label: 'Map Provider', description: 'Apple Maps or Google Maps' }]
     : []),
   { href: '/accessibility', icon: 'accessibility-new', label: 'Accessibility', description: 'Icon/text size, contrast, and motion' },
 ];
@@ -57,7 +57,7 @@ export default function MoreSettingsScreen() {
                 accessibilityLabel={t(item.label)}
                 accessibilityHint={t(item.description)}
               >
-                <MaterialIcons name={item.icon} size={rowIconSize} color={c.tintText} style={styles.rowIcon} />
+                <MaterialIcons name={item.icon} size={rowIconSize} color={c.tint} style={styles.rowIcon} />
                 <View style={styles.rowText}>
                   <Text style={[styles.rowLabel, { color: c.text }]}>{t(item.label)}</Text>
                   <Text style={[styles.rowDesc, { color: c.textSecondary }]}>{t(item.description)}</Text>

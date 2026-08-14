@@ -18,8 +18,6 @@ interface AccessibilityContextValue {
   setTextSize: (size: TextSize) => void;
   highContrast: boolean;
   setHighContrast: (value: boolean) => void;
-  reduceMotion: boolean;
-  setReduceMotion: (value: boolean) => void;
 }
 
 const AccessibilityContext = createContext<AccessibilityContextValue>({
@@ -29,13 +27,11 @@ const AccessibilityContext = createContext<AccessibilityContextValue>({
   setTextSize: () => {},
   highContrast: false,
   setHighContrast: () => {},
-  reduceMotion: false,
-  setReduceMotion: () => {},
 });
 
 const PREFS_KEY = 'accessibility-prefs';
 
-type StoredPrefs = { iconSize: IconSize; textSize: TextSize; highContrast: boolean; reduceMotion: boolean };
+type StoredPrefs = { iconSize: IconSize; textSize: TextSize; highContrast: boolean };
 
 async function readPrefs(): Promise<Partial<StoredPrefs>> {
   try {
@@ -51,19 +47,17 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
   const [iconSize, setIconSizeState] = useState<IconSize>('default');
   const [textSize, setTextSizeState] = useState<TextSize>('default');
   const [highContrast, setHighContrastState] = useState(false);
-  const [reduceMotion, setReduceMotionState] = useState(false);
 
   useEffect(() => {
     readPrefs().then(prefs => {
       if (prefs.iconSize) setIconSizeState(prefs.iconSize);
       if (prefs.textSize) setTextSizeState(prefs.textSize);
       if (typeof prefs.highContrast === 'boolean') setHighContrastState(prefs.highContrast);
-      if (typeof prefs.reduceMotion === 'boolean') setReduceMotionState(prefs.reduceMotion);
     });
   }, []);
 
-  // One write path for all four - keeps the persisted blob's shape in one
-  // place instead of four separate AsyncStorage keys drifting independently.
+  // One write path for all three - keeps the persisted blob's shape in one
+  // place instead of three separate AsyncStorage keys drifting independently.
   const persist = useCallback((next: Partial<StoredPrefs>) => {
     readPrefs().then(prev => {
       AsyncStorage.setItem(PREFS_KEY, JSON.stringify({ ...prev, ...next })).catch(() => {});
@@ -85,14 +79,9 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
     persist({ highContrast: value });
   }, [persist]);
 
-  const setReduceMotion = useCallback((value: boolean) => {
-    setReduceMotionState(value);
-    persist({ reduceMotion: value });
-  }, [persist]);
-
   return (
     <AccessibilityContext.Provider
-      value={{ iconSize, setIconSize, textSize, setTextSize, highContrast, setHighContrast, reduceMotion, setReduceMotion }}
+      value={{ iconSize, setIconSize, textSize, setTextSize, highContrast, setHighContrast }}
     >
       {children}
     </AccessibilityContext.Provider>

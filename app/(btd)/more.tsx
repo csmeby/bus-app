@@ -42,50 +42,37 @@ export default function BtdMoreScreen() {
         <Text style={[styles.pageTitle, { color: c.text }]} accessibilityRole="header">More</Text>
 
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+          {/* Consolidated Theme/Language/Map/Accessibility, shared verbatim
+              with AggieSpirit's own More row - see app/more-settings.tsx and
+              app/(tabs)/settings.tsx's own MENU_SECTIONS. */}
           <TouchableOpacity
             style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}
-            onPress={() => router.push('/theme' as any)}
+            onPress={() => router.push('/more-settings' as any)}
             activeOpacity={0.6}
             accessibilityRole="button"
-            accessibilityLabel={t('Theme')}
-            accessibilityHint={t('Light, dark, or follow system')}
+            accessibilityLabel={t('Settings')}
+            accessibilityHint={t('Theme, Language, and Accessibility')}
           >
-            <MaterialIcons name="brightness-6" size={rowIconSize} color={tint} style={styles.rowIcon} />
+            <MaterialIcons name="settings" size={rowIconSize} color={tint} style={styles.rowIcon} />
             <View style={styles.rowText}>
-              <Text style={[styles.rowLabel, { color: c.text }]}>Theme</Text>
-              <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Light, dark, or follow system</Text>
+              <Text style={[styles.rowLabel, { color: c.text }]}>{t('Settings')}</Text>
+              <Text style={[styles.rowDesc, { color: c.textSecondary }]}>{t('Theme, Language, and Accessibility')}</Text>
             </View>
             <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}
-            onPress={() => router.push('/language' as any)}
+            onPress={() => router.push('/route-favorites' as any)}
             activeOpacity={0.6}
             accessibilityRole="button"
-            accessibilityLabel={t('Language')}
-            accessibilityHint={t('Choose your language')}
+            accessibilityLabel={t('Favorite Routes')}
+            accessibilityHint={t('Favorited routes appear at the top of the route selector on the map.')}
           >
-            <MaterialIcons name="translate" size={rowIconSize} color={tint} style={styles.rowIcon} />
+            <MaterialIcons name="star-outline" size={rowIconSize} color={tint} style={styles.rowIcon} />
             <View style={styles.rowText}>
-              <Text style={[styles.rowLabel, { color: c.text }]}>Language</Text>
-              <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Choose your language</Text>
-            </View>
-            <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.row, styles.rowBorder, { borderBottomColor: c.border }]}
-            onPress={() => router.push('/accessibility' as any)}
-            activeOpacity={0.6}
-            accessibilityRole="button"
-            accessibilityLabel={t('Accessibility')}
-            accessibilityHint={t('Icon/text size, contrast, and motion')}
-          >
-            <MaterialIcons name="accessibility-new" size={rowIconSize} color={tint} style={styles.rowIcon} />
-            <View style={styles.rowText}>
-              <Text style={[styles.rowLabel, { color: c.text }]}>Accessibility</Text>
-              <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Icon/text size, contrast, and motion</Text>
+              <Text style={[styles.rowLabel, { color: c.text }]}>{t('Favorite Routes')}</Text>
+              <Text style={[styles.rowDesc, { color: c.textSecondary }]}>{t('Pin routes to the top of the selector')}</Text>
             </View>
             <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
           </TouchableOpacity>
