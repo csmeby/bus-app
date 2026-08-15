@@ -113,8 +113,24 @@ export type RouteAlertConfig = {
   notifyReroutes: boolean;        // always fires regardless of schedule — detours matter any time
 };
 
+// One "notify me when a bus is near my stop" alert. Scoped to a single
+// physical stop (identified by its upstream `code`, matching Stop.code in
+// app/(tabs)/index.tsx) rather than a whole route, since that's the whole
+// point of this alert type - `routes` is every route to watch arrivals for
+// AT that stop (the one the rider originally picked, plus any other routes
+// sharing the same physical stop they opted into during setup).
+export type ProximityAlertConfig = {
+  id: string;
+  stopCode: string;
+  stopName: string;
+  routes: string[];
+  thresholdMinutes: number;       // default 5 - "notify me when a bus is this many minutes away"
+  schedule: RideWindow[];         // empty = any time, same semantics as RouteAlertConfig.schedule
+};
+
 export type AlertPrefs = {
   routeConfigs: RouteAlertConfig[];
+  proximityConfigs: ProximityAlertConfig[];
 };
 
 export function defaultRouteAlertConfig(route: string): RouteAlertConfig {
@@ -146,7 +162,7 @@ export async function registerPushTokenWithServer(
       body: JSON.stringify({
         token,
         platform: Platform.OS,
-        ...(prefs ? { routeConfigs: prefs.routeConfigs } : {}),
+        ...(prefs ? { routeConfigs: prefs.routeConfigs, proximityConfigs: prefs.proximityConfigs } : {}),
         ...(language ? { language } : {}),
       }),
     });

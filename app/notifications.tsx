@@ -1,11 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { router } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Switch, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
+import { ScheduleWindowPicker } from '@/components/schedule-window-picker';
 import { ALL_ROUTES } from '@/constants/routes';
 import { useLanguage } from '@/context/language-context';
 import { useThemeColors } from '@/context/theme-context';
@@ -23,49 +25,7 @@ import {
 
 const PREFS_KEY = 'alert-prefs-v2';
 
-const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; // index = server weekday (Mon=0)
-const DAY_FULL_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
-const EMPTY_PREFS: AlertPrefs = { routeConfigs: [] };
-
-// Free-text HH:MM entry - the picker-chip version of this only offered
-// fixed 30-minute increments, which is what this replaces. Keeps its own
-// draft text so a mid-typing value like "8:" doesn't get validated away
-// before the user's finished, only reformatting/committing on blur.
-function TimeField({
-  value, onChange, c, accessibilityLabel,
-}: { value: string; onChange: (v: string) => void; c: any; accessibilityLabel: string }) {
-  const [text, setText] = useState(value);
-  useEffect(() => { setText(value); }, [value]);
-
-  const commit = () => {
-    const m = text.match(/^(\d{1,2}):?(\d{2})$/);
-    if (m) {
-      const h = Math.min(23, parseInt(m[1], 10));
-      const min = Math.min(59, parseInt(m[2], 10));
-      const formatted = `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
-      setText(formatted);
-      if (formatted !== value) onChange(formatted);
-    } else {
-      setText(value); // invalid - revert to the last good value
-    }
-  };
-
-  return (
-    <TextInput
-      value={text}
-      onChangeText={setText}
-      onBlur={commit}
-      placeholder="08:00"
-      placeholderTextColor={c.textSecondary}
-      keyboardType="numbers-and-punctuation"
-      maxLength={5}
-      accessibilityLabel={accessibilityLabel}
-      accessibilityHint="Enter a time as hours and minutes, like 08:00"
-      style={[styles.timeInput, { color: c.text, backgroundColor: c.surfaceAlt, borderColor: c.border }]}
-    />
-  );
-}
+const EMPTY_PREFS: AlertPrefs = { routeConfigs: [], proximityConfigs: [] };
 
 export default function NotificationsScreen() {
   const c = useThemeColors();
@@ -136,8 +96,6 @@ export default function NotificationsScreen() {
     }
   };
 
-  const configFor = (route: string) => prefs.routeConfigs.find(rc => rc.route === route);
-
   const addRoute = (route: string) => {
     updatePrefs(p => ({ ...p, routeConfigs: [...p.routeConfigs, defaultRouteAlertConfig(route)] }));
     setExpanded(prev => new Set(prev).add(route));
@@ -158,44 +116,6 @@ export default function NotificationsScreen() {
       if (next.has(route)) next.delete(route); else next.add(route);
       return next;
     });
-
-  const setScheduleMode = (route: string, mode: 'always' | 'custom') => {
-    if (mode === 'always') {
-      updateRoute(route, { schedule: [] });
-    } else {
-      updateRoute(route, { schedule: [{ days: [0, 1, 2, 3, 4], start: '08:00', end: '10:00' }] });
-    }
-  };
-
-  const addWindow = (route: string) => {
-    const rc = configFor(route);
-    if (!rc) return;
-    updateRoute(route, { schedule: [...rc.schedule, { days: [0, 1, 2, 3, 4], start: '08:00', end: '10:00' }] });
-  };
-
-  const removeWindow = (route: string, idx: number) => {
-    const rc = configFor(route);
-    if (!rc) return;
-    updateRoute(route, { schedule: rc.schedule.filter((_, i) => i !== idx) });
-  };
-
-  const updateWindow = (route: string, idx: number, patch: Partial<RouteAlertConfig['schedule'][number]>) => {
-    const rc = configFor(route);
-    if (!rc) return;
-    updateRoute(route, { schedule: rc.schedule.map((w, i) => (i === idx ? { ...w, ...patch } : w)) });
-  };
-
-  const toggleWindowDay = (route: string, idx: number, day: number) => {
-    const rc = configFor(route);
-    if (!rc) return;
-    updateRoute(route, {
-      schedule: rc.schedule.map((w, i) =>
-        i === idx
-          ? { ...w, days: w.days.includes(day) ? w.days.filter(d => d !== day) : [...w.days, day].sort() }
-          : w,
-      ),
-    });
-  };
 
   const addedRoutes = prefs.routeConfigs.map(rc => rc.route);
   const addableRoutes = ALL_ROUTES.filter(r => !addedRoutes.includes(r));
@@ -245,7 +165,6 @@ export default function NotificationsScreen() {
 
             {prefs.routeConfigs.map(rc => {
               const isOpen = expanded.has(rc.route);
-              const hasSchedule = rc.schedule.length > 0;
               return (
                 <View key={rc.route} style={[styles.routeCard, { backgroundColor: c.surface, borderColor: c.border }]}>
                   <TouchableOpacity
@@ -292,93 +211,12 @@ export default function NotificationsScreen() {
                       </View>
 
                       {/* Delay schedule */}
-                      <Text style={[styles.subLabel, { color: c.textSecondary }]}>
-                        Notify me during these times if the route is running late:
-                      </Text>
-                      <View style={[styles.segmentWrap, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
-                        <TouchableOpacity
-                          style={[styles.segmentBtn, !hasSchedule && { backgroundColor: c.tint }]}
-                          onPress={() => setScheduleMode(rc.route, 'always')}
-                          accessibilityRole="button"
-                          accessibilityLabel="Always"
-                          accessibilityState={{ selected: !hasSchedule }}
-                          hitSlop={6}
-                        >
-                          <Text style={[styles.segmentText, { color: !hasSchedule ? '#fff' : c.textSecondary }]}>Always</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.segmentBtn, hasSchedule && { backgroundColor: c.tint }]}
-                          onPress={() => setScheduleMode(rc.route, 'custom')}
-                          accessibilityRole="button"
-                          accessibilityLabel="Specific times"
-                          accessibilityState={{ selected: hasSchedule }}
-                          hitSlop={6}
-                        >
-                          <Text style={[styles.segmentText, { color: hasSchedule ? '#fff' : c.textSecondary }]}>Specific times</Text>
-                        </TouchableOpacity>
-                      </View>
-
-                      {hasSchedule && rc.schedule.map((w, idx) => (
-                        <View key={idx} style={[styles.windowCard, { backgroundColor: c.surfaceAlt, borderColor: c.border }]}>
-                          <View style={styles.windowHeader}>
-                            <Text style={[styles.windowTitle, { color: c.text }]}>Window {idx + 1}</Text>
-                            <TouchableOpacity
-                              onPress={() => removeWindow(rc.route, idx)}
-                              hitSlop={8}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Delete window ${idx + 1}`}
-                            >
-                              <MaterialIcons name="delete-outline" size={18} color={c.textSecondary} />
-                            </TouchableOpacity>
-                          </View>
-                          <View style={styles.dayRow}>
-                            {DAY_LABELS.map((label, day) => {
-                              const on = w.days.includes(day);
-                              return (
-                                <TouchableOpacity
-                                  key={label}
-                                  style={[styles.dayChip, { backgroundColor: on ? c.tint : c.surface }]}
-                                  onPress={() => toggleWindowDay(rc.route, idx, day)}
-                                  accessibilityRole="checkbox"
-                                  accessibilityLabel={DAY_FULL_NAMES[day]}
-                                  accessibilityState={{ checked: on }}
-                                  hitSlop={{ top: 10, bottom: 10, left: 2, right: 2 }}
-                                >
-                                  <Text style={[styles.dayChipText, { color: on ? '#fff' : c.textSecondary }]}>{label}</Text>
-                                </TouchableOpacity>
-                              );
-                            })}
-                          </View>
-                          <View style={styles.timeRow}>
-                            <Text style={[styles.timeLabel, { color: c.textSecondary }]}>From</Text>
-                            <TimeField
-                              value={w.start}
-                              onChange={t => updateWindow(rc.route, idx, { start: t })}
-                              c={c}
-                              accessibilityLabel={`Window ${idx + 1} start time`}
-                            />
-                            <Text style={[styles.timeLabel, { color: c.textSecondary }]}>To</Text>
-                            <TimeField
-                              value={w.end}
-                              onChange={t => updateWindow(rc.route, idx, { end: t })}
-                              c={c}
-                              accessibilityLabel={`Window ${idx + 1} end time`}
-                            />
-                          </View>
-                        </View>
-                      ))}
-
-                      {hasSchedule && (
-                        <TouchableOpacity
-                          style={[styles.inlineBtn, { borderColor: c.border }]}
-                          onPress={() => addWindow(rc.route)}
-                          accessibilityRole="button"
-                          accessibilityLabel="Add another window"
-                        >
-                          <MaterialIcons name="add" size={16} color={c.tint} />
-                          <Text style={[styles.inlineBtnText, { color: c.tint }]}>Add another window</Text>
-                        </TouchableOpacity>
-                      )}
+                      <ScheduleWindowPicker
+                        schedule={rc.schedule}
+                        onChange={schedule => updateRoute(rc.route, { schedule })}
+                        c={c}
+                        label="Notify me during these times if the route is running late:"
+                      />
 
                       {/* Reroutes - independent of the schedule above, always fires */}
                       <View style={[styles.row, { paddingHorizontal: 0, marginTop: 14 }]}>
@@ -418,6 +256,28 @@ export default function NotificationsScreen() {
                 </View>
               </>
             )}
+
+            <Text style={[styles.sectionTitle, { color: c.text }]} accessibilityRole="header">Bus Arrival Alerts</Text>
+            <Text style={[styles.sectionDesc, { color: c.textSecondary }]}>
+              Get notified when a bus is about to reach a specific stop.
+            </Text>
+            <TouchableOpacity
+              style={[styles.arrivalAlertsBtn, { backgroundColor: c.surface, borderColor: c.border }]}
+              onPress={() => router.push('/proximity-alerts' as any)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Manage bus arrival alerts"
+            >
+              <View style={styles.rowText}>
+                <Text style={[styles.rowLabel, { color: c.text }]}>
+                  {prefs.proximityConfigs.length === 0
+                    ? 'No arrival alerts set up yet'
+                    : `${prefs.proximityConfigs.length} arrival alert${prefs.proximityConfigs.length === 1 ? '' : 's'}`}
+                </Text>
+                <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Tap to add or manage</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={22} color={c.textSecondary} />
+            </TouchableOpacity>
           </>
         )}
       </ScrollView>
@@ -457,35 +317,9 @@ const styles = StyleSheet.create({
     fontSize: 14, fontWeight: '700', minWidth: 44, textAlign: 'center',
   },
 
-  subLabel: { fontSize: 12, fontWeight: '600', marginBottom: 8 },
-
-  segmentWrap: { flexDirection: 'row', borderRadius: 10, borderWidth: 1, padding: 3, marginBottom: 10 },
-  segmentBtn: { flex: 1, borderRadius: 8, paddingVertical: 9, alignItems: 'center' },
-  segmentText: { fontSize: 13, fontWeight: '700' },
-
-  inlineBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingVertical: 10,
-    marginTop: 4,
-  },
-  inlineBtnText: { fontSize: 13, fontWeight: '600' },
-
-  windowCard: { borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 10 },
-  windowHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  windowTitle: { fontSize: 13, fontWeight: '700' },
-  dayRow: { flexDirection: 'row', gap: 6, marginBottom: 10 },
-  dayChip: { flex: 1, borderRadius: 7, paddingVertical: 6, alignItems: 'center' },
-  dayChipText: { fontSize: 11, fontWeight: '600' },
-  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  timeLabel: { fontSize: 12, fontWeight: '600' },
-  timeInput: {
-    borderRadius: 7, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6,
-    fontSize: 13, fontWeight: '600', minWidth: 64, textAlign: 'center',
+  arrivalAlertsBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 10,
   },
 
   testBtn: {

@@ -36,6 +36,21 @@ const WALK_COLOR = '#9CA3AF';
 
 const KNOWN_STOPS = knownBtdStops();
 
+// BTD runs Monday-Friday only (see lib/btd-trip-planner.ts's own weekend
+// check) - defaulting the date picker to `new Date()` on a Saturday/Sunday
+// silently set every first-time search up to fail with "BTD routes don't
+// run on weekends", which reads as "the planner is broken" rather than
+// "you're on a weekend and didn't notice the date field." Rolling the
+// default forward to the next weekday keeps the very first search someone
+// runs actually answerable.
+function nextBtdServiceDay(from: Date): Date {
+  const d = new Date(from);
+  while (d.getDay() === 0 || d.getDay() === 6) {
+    d.setDate(d.getDate() + 1);
+  }
+  return d;
+}
+
 function searchKnownStops(query: string, limit = 6) {
   const q = query.trim().toLowerCase();
   if (!q) return [];
@@ -326,7 +341,7 @@ export default function BtdPlanRideScreen() {
 
   const [locating, setLocating] = useState(false);
 
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(() => nextBtdServiceDay(new Date()));
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const [departTime, setDepartTime] = useState<Date | null>(null);
