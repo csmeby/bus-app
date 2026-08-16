@@ -102,15 +102,16 @@ export type RideWindow = {
 
 // Per-route alert settings — delay threshold and schedule are independent per
 // route (someone might want a 5-minute threshold on a route they catch for a
-// tight connection, and a lax 20-minute one elsewhere), and reroute alerts
-// are a separate opt-in from delay alerts entirely since they always fire
-// regardless of the schedule window.
+// tight connection, and a lax 20-minute one elsewhere), and reroute/news
+// alerts are separate opt-ins from delay alerts entirely since they always
+// fire regardless of the schedule window.
 export type RouteAlertConfig = {
   route: string;
   notifyDelays: boolean;
   delayThresholdMinutes: number;  // default 10
   schedule: RideWindow[];         // empty = delay alerts any time; set = only inside windows
   notifyReroutes: boolean;        // always fires regardless of schedule — detours matter any time
+  notifyNews: boolean;            // official transit service-disruption news for this route — always fires regardless of schedule
 };
 
 // One "notify me when a bus is near my stop" alert. Scoped to a single
@@ -124,6 +125,16 @@ export type ProximityAlertConfig = {
   stopCode: string;
   stopName: string;
   routes: string[];
+  // The specific direction (upstream direction_key UUID) to watch for
+  // `routes[0]` (the originally-picked route) at this stop, when the rider
+  // picked one - set whenever this physical stop is served by more than one
+  // direction of that route (so "outbound toward downtown" vs "inbound
+  // toward campus" don't both trigger the same alert). Undefined = watch
+  // every direction of every included route at this stop, same as before
+  // this field existed. Only ever applied to routes[0] server-side - the
+  // other routes opted into via the "shared stop" step aren't
+  // direction-filtered.
+  directionKey?: string;
   thresholdMinutes: number;       // default 5 - "notify me when a bus is this many minutes away"
   schedule: RideWindow[];         // empty = any time, same semantics as RouteAlertConfig.schedule
 };
@@ -134,7 +145,7 @@ export type AlertPrefs = {
 };
 
 export function defaultRouteAlertConfig(route: string): RouteAlertConfig {
-  return { route, notifyDelays: true, delayThresholdMinutes: 10, schedule: [], notifyReroutes: true };
+  return { route, notifyDelays: true, delayThresholdMinutes: 10, schedule: [], notifyReroutes: true, notifyNews: true };
 }
 
 /**

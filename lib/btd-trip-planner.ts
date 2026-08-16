@@ -14,9 +14,12 @@
 // extraction script; the GTFS data itself isn't bundled or depended on at
 // runtime, only this baked-in result is).
 //
-// Searches direct (single-route) itineraries AND one-transfer itineraries
-// (ride route1 partway, walk to a nearby stop, ride route2 the rest of the
-// way) - same one-transfer cap as AggieSpirit's own planner.
+// Searches itineraries using as many transfers as the network genuinely
+// requires - a round-based (RAPTOR-style) earliest-arrival search, one round
+// per additional bus boarding, rather than a fixed 0/1-transfer cap. BTD's
+// hub-and-spoke layout means plenty of real trips need 2-3+ transfers; this
+// finds and surfaces those instead of quietly falling back to a walk-only
+// result. See planBtdTrip's own comments for the round-by-round mechanics.
 import btdRoutesRaw from '../btd_routes.json';
 
 const EARTH_RADIUS_MI = 3958.8;
@@ -26,11 +29,11 @@ const MAX_WALK_MILES = 0.6;
 const MAX_TRANSFER_WALK_MILES = 0.3;
 const MAX_STOPS_PER_SIDE = 6;
 const MAX_ITINERARIES = 5;
-// Transfer search is combinatorial - once this many raw candidates are
-// found there's already more than enough to pick a top MAX_ITINERARIES
-// from, so searching further only burns time on a rider's phone for no
-// benefit the final sort+cap would keep anyway.
-const MAX_RAW_TRANSFER_CANDIDATES = 40;
+// One round = one additional bus boarding. Generous headroom - on this
+// network's 9 route sequences the search converges (no further
+// improvement) in practice well before this, so it's a safety bound on
+// iteration count, not a real cap on how many transfers a trip can use.
+const MAX_ROUNDS = 8;
 // Small margin before the actual scheduled departure - covers the walk
 // itself plus not wanting to arrive at an empty stop the instant the bus
 // pulls away. See server/trip_planner.py's identical LEAVE_BUFFER_MINUTES.
@@ -161,6 +164,15 @@ const ROUTE_SEQUENCES: RouteSequence[] = (() => {
 
 type Occurrence = { seq: RouteSequence; stop: BtdStopEntry; stopIndex: number };
 
+// One hop in a reconstructed itinerary's chain, as recorded by the
+// round-based search below - `fromStopKey` (absent only on the very first,
+// origin-anchored hop) is what lets reconstruct() walk the chain backward
+// from a destination stop to the origin.
+type HopParent =
+  | { kind: 'origin-walk'; toStop: BtdStopEntry; distanceMiles: number }
+  | { kind: 'walk'; fromStopKey: string; fromStop: BtdStopEntry; toStop: BtdStopEntry; distanceMiles: number }
+  | { kind: 'bus'; fromStopKey: string; seq: RouteSequence; boardStop: BtdStopEntry; boardTime: Date; alightStop: BtdStopEntry; alightTime: Date };
+
 const ALL_OCCURRENCES: Occurrence[] = ROUTE_SEQUENCES.flatMap(seq =>
   seq.stops.map((stop, stopIndex) => ({ seq, stop, stopIndex }))
 );
@@ -230,64 +242,6 @@ function earliestRunAtOrAfter(times: string[], floor: Date, dateStr: string): { 
     if (t >= floor) return { index: i, time: t };
   }
   return null;
-}
-
-// The departure floor (can't board a run that's already left, or before
-// the rider said they're able to leave) is always a hard filter. The
-// arrival DEADLINE is only a soft preference: a rider who can't walk the
-// whole way needs to see the bus exists even if it misses their "arrive
-// by" ask, not just a walking itinerary - BTD runs are infrequent enough
-// that a strict deadline can otherwise zero out every remaining option.
-// Runs that DO make the deadline always win over ones that don't; ties
-// within the same tier fall back to earliest departure (or latest, in
-// arrive-by mode).
-function pickBest<T extends { board: Date; arrive: Date }>(
-  options: T[],
-  mustLeaveAfter: Date,
-  latestArrive: Date | null,
-  arriveByMode: boolean
-): { option: T; inWindow: boolean } | null {
-  let best: T | null = null;
-  let bestInWindow = false;
-  for (const opt of options) {
-    if (opt.board < mustLeaveAfter) continue;
-    const inWindow = !latestArrive || opt.arrive <= latestArrive;
-    if (!best) {
-      best = opt;
-      bestInWindow = inWindow;
-      continue;
-    }
-    if (inWindow !== bestInWindow) {
-      if (inWindow) {
-        best = opt;
-        bestInWindow = true;
-      }
-      continue;
-    }
-    if (arriveByMode ? opt.board > best.board : opt.board < best.board) best = opt;
-  }
-  return best ? { option: best, inWindow: bestInWindow } : null;
-}
-
-// Every feasible (board, arrive) pair for riding straight from occO to occD
-// on their shared sequence, across every daily run. If occD sits EARLIER in
-// the stop order than occO, the rider isn't going backward - the route
-// eventually comes back around to it (Yellow's own two directions handle
-// this the same way any loop route does), so that run's arrival is looked
-// up on the NEXT run's times instead (run r+1).
-function directOptions(occO: Occurrence, occD: Occurrence, dateStr: string): { board: Date; arrive: Date }[] {
-  const timesO = occO.stop.times;
-  const timesD = occD.stop.times;
-  const runs = Math.min(timesO.length, timesD.length);
-  const out: { board: Date; arrive: Date }[] = [];
-  for (let r = 0; r < runs; r++) {
-    const board = parseHHMM(timesO[r], dateStr);
-    const arrive = occD.stopIndex > occO.stopIndex
-      ? parseHHMM(timesD[r], dateStr)
-      : r + 1 < runs ? parseHHMM(timesD[r + 1], dateStr) : null;
-    if (arrive && arrive > board) out.push({ board, arrive });
-  }
-  return out;
 }
 
 function nearestPathIndex(path: { lat: number; lng: number }[], lat: number, lng: number): number {
@@ -369,77 +323,6 @@ export function planBtdTrip(
   const originCandidates = nearest(origin.lat, origin.lon, MAX_WALK_MILES, MAX_STOPS_PER_SIDE);
   const destCandidates = nearest(destination.lat, destination.lon, MAX_WALK_MILES, MAX_STOPS_PER_SIDE);
 
-  const destBySeq = new Map<string, { dist: number; occ: Occurrence }[]>();
-  for (const c of destCandidates) {
-    if (!destBySeq.has(c.occ.seq.seqId)) destBySeq.set(c.occ.seq.seqId, []);
-    destBySeq.get(c.occ.seq.seqId)!.push(c);
-  }
-
-  const seenDirectPairs = new Set<string>();
-
-  // ── Direct (single-route) search ───────────────────────────────────────
-  for (const { dist: wdistO, occ: occO } of originCandidates) {
-    const destOnSeq = destBySeq.get(occO.seq.seqId);
-    if (!destOnSeq) continue;
-    for (const { dist: wdistD, occ: occD } of destOnSeq) {
-      if (occD.stop.key === occO.stop.key) continue;
-      const pairKey = `${occO.seq.seqId}:${occO.stop.key}:${occD.stop.key}`;
-      if (seenDirectPairs.has(pairKey)) continue;
-      seenDirectPairs.add(pairKey);
-
-      const walkToOrigin = walkMinutes(wdistO);
-      const walkFromDest = walkMinutes(wdistD);
-      const mustLeaveStopAfter = new Date(earliestDepart.getTime() + walkToOrigin * 60000);
-
-      const options = directOptions(occO, occD, targetDate).map(o => ({
-        ...o,
-        arrive: new Date(o.arrive.getTime() + walkFromDest * 60000),
-      }));
-      const picked = pickBest(options, mustLeaveStopAfter, latestArrive, arriveByMode);
-      if (!picked) continue;
-      const { option: best, inWindow } = picked;
-
-      const departDt = best.board;
-      const arriveDt = best.arrive;
-      const idealLeave = new Date(departDt.getTime() - (walkToOrigin + LEAVE_BUFFER_MINUTES) * 60000);
-      const recommendedLeave = idealLeave > earliestDepart ? idealLeave : earliestDepart;
-      const waitMinutes = Math.max(
-        0,
-        (departDt.getTime() - (recommendedLeave.getTime() + walkToOrigin * 60000)) / 60000
-      );
-      const rideMinutes = (arriveDt.getTime() - walkFromDest * 60000 - departDt.getTime()) / 60000;
-      const totalMinutes = (arriveDt.getTime() - recommendedLeave.getTime()) / 60000;
-
-      const legs: Leg[] = [walkLeg(origin, { lat: occO.stop.lat, lon: occO.stop.lng }, `Walk to ${occO.stop.label}`, wdistO)];
-      if (waitMinutes >= 1) {
-        legs.push({
-          type: 'wait',
-          description: `Wait for the ${occO.seq.routeName} Route`,
-          minutes: Math.round(waitMinutes),
-          departTime: departDt.toISOString(),
-        });
-      }
-      legs.push({
-        type: 'bus',
-        description: `Take the ${occO.seq.routeName} Route to ${occD.stop.label}`,
-        minutes: Math.round(rideMinutes),
-        route: occO.seq.routeNum,
-        routeName: occO.seq.routeName,
-        color: occO.seq.color,
-        path: routeSegmentPath(occO.seq.routeNum, occO.stop, occD.stop),
-      });
-      legs.push(walkLeg({ lat: occD.stop.lat, lon: occD.stop.lng }, destination, 'Walk to destination', wdistD));
-
-      candidates.push({
-        totalMinutes: Math.round(totalMinutes),
-        departTime: recommendedLeave.toISOString(),
-        arriveTime: arriveDt.toISOString(),
-        missesDeadline: !inWindow,
-        legs,
-      });
-    }
-  }
-
   // Every stop on a sequence reachable from a given board index, in real
   // travel order - stops after the boarding index come on the SAME run
   // (boardIndex); stops at or before it are only reached after the bus
@@ -460,114 +343,182 @@ export function planBtdTrip(
     return out;
   }
 
-  // ── One-transfer search ─────────────────────────────────────────────────
-  // Ride sequence1 from an origin candidate stop to some reachable stop X,
-  // walk (possibly 0 distance) to a nearby stop Y served by a DIFFERENT
-  // route, then ride sequence2 onward to a destination candidate stop.
-  // Each hop picks the earliest run at-or-after its own floor time
-  // independently (rather than assuming aligned run indices ACROSS
-  // routes, which only holds within a single sequence) - see
-  // earliestRunAtOrAfter.
-  let rawTransferCount = 0;
-  transferSearch:
-  for (const { dist: wdistO, occ: occO } of originCandidates) {
-    const walkToOrigin = walkMinutes(wdistO);
-    const mustLeaveOriginAfter = new Date(earliestDepart.getTime() + walkToOrigin * 60000);
-    const boardO = earliestRunAtOrAfter(occO.stop.times, mustLeaveOriginAfter, targetDate);
-    if (!boardO) continue;
+  // ── Round-based (RAPTOR-style) multi-transfer search ────────────────────
+  // Round 0 seeds every stop within walking distance of the origin. Each
+  // round after that is ONE more bus boarding: round k's arrival/parent
+  // maps start as a copy of round k-1's (everything already found stays
+  // valid), then get improved by (a) boarding a bus from any stop newly
+  // reached in round k-1, and (b) walking from any stop a bus just reached
+  // THIS round to a nearby stop on another route. This supports as many
+  // transfers as the network genuinely needs - no fixed cap, just
+  // MAX_ROUNDS as a safety bound (the loop converges and stops early once a
+  // round finds nothing new to improve).
+  const arrivalByRound: Map<string, Date>[] = [];
+  const parentByRound: Map<string, HopParent>[] = [];
 
-    for (const { stop: stopX, runIndex: xRunIndex } of reachableStops(occO.seq, occO.stopIndex, boardO.index)) {
-      const arriveAtX = parseHHMM(stopX.times[xRunIndex], targetDate);
+  const round0Arrival = new Map<string, Date>();
+  const round0Parent = new Map<string, HopParent>();
+  for (const { dist, occ } of originCandidates) {
+    const arrive = new Date(earliestDepart.getTime() + walkMinutes(dist) * 60000);
+    const existingSeed = round0Arrival.get(occ.stop.key);
+    if (!existingSeed || arrive < existingSeed) {
+      round0Arrival.set(occ.stop.key, arrive);
+      round0Parent.set(occ.stop.key, { kind: 'origin-walk', toStop: occ.stop, distanceMiles: dist });
+    }
+  }
+  arrivalByRound.push(round0Arrival);
+  parentByRound.push(round0Parent);
 
-      for (const { key: stopYKey, dist: transferDist } of STOP_NEIGHBORS.get(stopX.key) ?? []) {
-        const transferWalkMin = walkMinutes(transferDist);
-        const mustLeaveTransferAfter = new Date(arriveAtX.getTime() + transferWalkMin * 60000);
+  let frontier = new Set(round0Arrival.keys());
+  for (let k = 1; k <= MAX_ROUNDS && frontier.size > 0; k++) {
+    const prevArrival = arrivalByRound[k - 1];
+    const arrival = new Map(prevArrival);
+    const parent = new Map(parentByRound[k - 1]);
+    const touchedByBus = new Set<string>();
 
-        for (const occY of OCCURRENCES_BY_STOP_KEY.get(stopYKey) ?? []) {
-          if (occY.seq.routeNum === occO.seq.routeNum) continue;
-          const boardY = earliestRunAtOrAfter(occY.stop.times, mustLeaveTransferAfter, targetDate);
-          if (!boardY) continue;
-
-          for (const { dist: wdistD, occ: occD } of destCandidates) {
-            if (occD.seq.seqId !== occY.seq.seqId) continue;
-            if (occD.stop.key === occY.stop.key) continue;
-            const dRunIndex = occD.stopIndex > occY.stopIndex ? boardY.index : boardY.index + 1;
-            if (dRunIndex >= occD.stop.times.length) continue;
-
-            if (rawTransferCount >= MAX_RAW_TRANSFER_CANDIDATES) break transferSearch;
-            rawTransferCount++;
-
-            const walkFromDest = walkMinutes(wdistD);
-            const arrive2 = parseHHMM(occD.stop.times[dRunIndex], targetDate);
-            const finalArrive = new Date(arrive2.getTime() + walkFromDest * 60000);
-            const inWindow = !latestArrive || finalArrive <= latestArrive;
-
-            const ride1 = (arriveAtX.getTime() - boardO.time.getTime()) / 60000;
-            const ride2 = (arrive2.getTime() - boardY.time.getTime()) / 60000;
-            const idealLeave = new Date(boardO.time.getTime() - (walkToOrigin + LEAVE_BUFFER_MINUTES) * 60000);
-            const recommendedLeave = idealLeave > earliestDepart ? idealLeave : earliestDepart;
-            const wait1 = Math.max(0, (boardO.time.getTime() - (recommendedLeave.getTime() + walkToOrigin * 60000)) / 60000);
-            const wait2 = Math.max(0, (boardY.time.getTime() - mustLeaveTransferAfter.getTime()) / 60000);
-            const totalMinutes = (finalArrive.getTime() - recommendedLeave.getTime()) / 60000;
-            const stopY = occY.stop;
-
-            const legs: Leg[] = [walkLeg(origin, { lat: occO.stop.lat, lon: occO.stop.lng }, `Walk to ${occO.stop.label}`, wdistO)];
-            if (wait1 >= 1) {
-              legs.push({
-                type: 'wait',
-                description: `Wait for the ${occO.seq.routeName} Route`,
-                minutes: Math.round(wait1),
-                departTime: boardO.time.toISOString(),
-              });
-            }
-            legs.push({
-              type: 'bus',
-              description: `Take the ${occO.seq.routeName} Route to ${stopX.label}`,
-              minutes: Math.round(ride1),
-              route: occO.seq.routeNum,
-              routeName: occO.seq.routeName,
-              color: occO.seq.color,
-              path: routeSegmentPath(occO.seq.routeNum, occO.stop, stopX),
-            });
-            legs.push({
-              type: 'walk',
-              description: transferDist <= 0.01
-                ? `Transfer to the ${occY.seq.routeName} Route at ${stopY.label}`
-                : `Walk to ${stopY.label}`,
-              minutes: Math.round(transferWalkMin),
-              distanceMiles: round2(transferDist),
-              path: [{ lat: stopX.lat, lon: stopX.lng }, { lat: stopY.lat, lon: stopY.lng }],
-            });
-            if (wait2 >= 1) {
-              legs.push({
-                type: 'wait',
-                description: `Wait for the ${occY.seq.routeName} Route`,
-                minutes: Math.round(wait2),
-                departTime: boardY.time.toISOString(),
-              });
-            }
-            legs.push({
-              type: 'bus',
-              description: `Take the ${occY.seq.routeName} Route to ${occD.stop.label}`,
-              minutes: Math.round(ride2),
-              route: occY.seq.routeNum,
-              routeName: occY.seq.routeName,
-              color: occY.seq.color,
-              path: routeSegmentPath(occY.seq.routeNum, stopY, occD.stop),
-            });
-            legs.push(walkLeg({ lat: occD.stop.lat, lon: occD.stop.lng }, destination, 'Walk to destination', wdistD));
-
-            candidates.push({
-              totalMinutes: Math.round(totalMinutes),
-              departTime: recommendedLeave.toISOString(),
-              arriveTime: finalArrive.toISOString(),
-              missesDeadline: !inWindow,
-              legs,
-            });
-          }
+    for (const stopKey of frontier) {
+      const floor = prevArrival.get(stopKey)!;
+      for (const occ of OCCURRENCES_BY_STOP_KEY.get(stopKey) ?? []) {
+        const board = earliestRunAtOrAfter(occ.stop.times, floor, targetDate);
+        if (!board) continue;
+        for (const { stop, runIndex } of reachableStops(occ.seq, occ.stopIndex, board.index)) {
+          const arrive = parseHHMM(stop.times[runIndex], targetDate);
+          const existingArrival = arrival.get(stop.key);
+          if (existingArrival && arrive >= existingArrival) continue;
+          arrival.set(stop.key, arrive);
+          parent.set(stop.key, {
+            kind: 'bus', fromStopKey: stopKey, seq: occ.seq,
+            boardStop: occ.stop, boardTime: board.time, alightStop: stop, alightTime: arrive,
+          });
+          touchedByBus.add(stop.key);
         }
       }
     }
+
+    const touchedByWalk = new Set<string>();
+    for (const stopKey of touchedByBus) {
+      const arrive = arrival.get(stopKey)!;
+      const fromStop = OCCURRENCES_BY_STOP_KEY.get(stopKey)?.[0]?.stop;
+      if (!fromStop) continue;
+      for (const { key: neighborKey, dist } of STOP_NEIGHBORS.get(stopKey) ?? []) {
+        if (neighborKey === stopKey) continue;
+        const toStop = OCCURRENCES_BY_STOP_KEY.get(neighborKey)?.[0]?.stop;
+        if (!toStop) continue;
+        const arriveAtNeighbor = new Date(arrive.getTime() + walkMinutes(dist) * 60000);
+        const existingNeighborArrival = arrival.get(neighborKey);
+        if (existingNeighborArrival && arriveAtNeighbor >= existingNeighborArrival) continue;
+        arrival.set(neighborKey, arriveAtNeighbor);
+        parent.set(neighborKey, { kind: 'walk', fromStopKey: stopKey, fromStop, toStop, distanceMiles: dist });
+        touchedByWalk.add(neighborKey);
+      }
+    }
+
+    arrivalByRound.push(arrival);
+    parentByRound.push(parent);
+    frontier = new Set([...touchedByBus, ...touchedByWalk]);
+  }
+
+  // Builds the full Leg[] for the chain of hops that reaches `destStopKey`
+  // in round `k`, plus the closing walk to the actual destination
+  // coordinate. Only ever called for a chain that includes at least one bus
+  // hop (see the origin-walk-only guard where this is invoked below).
+  function reconstruct(k: number, destStopKey: string, destWalkMiles: number): Itinerary {
+    const parent = parentByRound[k];
+    const chain: HopParent[] = [];
+    let cur: string | undefined = destStopKey;
+    while (cur !== undefined) {
+      const hop = parent.get(cur);
+      if (!hop) break;
+      chain.push(hop);
+      cur = hop.kind === 'origin-walk' ? undefined : hop.fromStopKey;
+    }
+    chain.reverse();
+
+    const originHop = chain[0] as Extract<HopParent, { kind: 'origin-walk' }>;
+    const firstBus = chain.find((h): h is Extract<HopParent, { kind: 'bus' }> => h.kind === 'bus')!;
+    const walkToOriginMin = walkMinutes(originHop.distanceMiles);
+    const idealLeave = new Date(firstBus.boardTime.getTime() - (walkToOriginMin + LEAVE_BUFFER_MINUTES) * 60000);
+    const recommendedLeave = idealLeave > earliestDepart ? idealLeave : earliestDepart;
+
+    const legs: Leg[] = [walkLeg(origin, { lat: originHop.toStop.lat, lon: originHop.toStop.lng }, `Walk to ${originHop.toStop.label}`, originHop.distanceMiles)];
+    let arrivalAtPrevStop = new Date(recommendedLeave.getTime() + walkToOriginMin * 60000);
+
+    for (let i = 1; i < chain.length; i++) {
+      const hop = chain[i];
+      if (hop.kind === 'bus') {
+        const waitMinutes = Math.max(0, (hop.boardTime.getTime() - arrivalAtPrevStop.getTime()) / 60000);
+        if (waitMinutes >= 1) {
+          legs.push({
+            type: 'wait',
+            description: `Wait for the ${hop.seq.routeName} Route`,
+            minutes: Math.round(waitMinutes),
+            departTime: hop.boardTime.toISOString(),
+          });
+        }
+        const rideMinutes = (hop.alightTime.getTime() - hop.boardTime.getTime()) / 60000;
+        legs.push({
+          type: 'bus',
+          description: `Take the ${hop.seq.routeName} Route to ${hop.alightStop.label}`,
+          minutes: Math.round(rideMinutes),
+          route: hop.seq.routeNum,
+          routeName: hop.seq.routeName,
+          color: hop.seq.color,
+          path: routeSegmentPath(hop.seq.routeNum, hop.boardStop, hop.alightStop),
+        });
+        arrivalAtPrevStop = hop.alightTime;
+      } else if (hop.kind === 'walk') {
+        const nextBus = chain[i + 1] as Extract<HopParent, { kind: 'bus' }>; // structurally always a bus hop
+        const transferWalkMin = walkMinutes(hop.distanceMiles);
+        legs.push({
+          type: 'walk',
+          description: hop.distanceMiles <= 0.01
+            ? `Transfer to the ${nextBus.seq.routeName} Route at ${hop.toStop.label}`
+            : `Walk to ${hop.toStop.label}`,
+          minutes: Math.round(transferWalkMin),
+          distanceMiles: round2(hop.distanceMiles),
+          path: [{ lat: hop.fromStop.lat, lon: hop.fromStop.lng }, { lat: hop.toStop.lat, lon: hop.toStop.lng }],
+        });
+        arrivalAtPrevStop = new Date(arrivalAtPrevStop.getTime() + transferWalkMin * 60000);
+      }
+    }
+
+    const lastHop = chain[chain.length - 1];
+    const lastStop = lastHop.kind === 'bus' ? lastHop.alightStop : (lastHop as Extract<HopParent, { kind: 'walk' }>).toStop;
+    const finalWalkMin = walkMinutes(destWalkMiles);
+    legs.push(walkLeg({ lat: lastStop.lat, lon: lastStop.lng }, destination, 'Walk to destination', destWalkMiles));
+    const arriveTime = new Date(arrivalAtPrevStop.getTime() + finalWalkMin * 60000);
+
+    return {
+      totalMinutes: Math.round((arriveTime.getTime() - recommendedLeave.getTime()) / 60000),
+      departTime: recommendedLeave.toISOString(),
+      arriveTime: arriveTime.toISOString(),
+      missesDeadline: !!latestArrive && arriveTime > latestArrive,
+      legs,
+    };
+  }
+
+  // For each round (= transfer count), find the best-finishing destination
+  // candidate and keep it only if it's a genuine improvement over the best
+  // itinerary already found with fewer transfers - a 3-transfer trip no
+  // faster than the 1-transfer one already found isn't worth surfacing,
+  // but if 3 transfers really is the fastest (or only) way, it's kept.
+  // Skips any candidate whose arrival is still just the round-0 origin-walk
+  // carried forward unimproved (i.e. no bus actually helped reach it) -
+  // that's not a real itinerary, just the walk-only fallback in disguise.
+  let bestFinish: Date | null = null;
+  for (let k = 1; k < arrivalByRound.length; k++) {
+    let best: { stopKey: string; distanceMiles: number; finish: Date } | null = null;
+    for (const { dist, occ } of destCandidates) {
+      if (parentByRound[k].get(occ.stop.key)?.kind === 'origin-walk') continue;
+      const arrive = arrivalByRound[k].get(occ.stop.key);
+      if (!arrive) continue;
+      const finish = new Date(arrive.getTime() + walkMinutes(dist) * 60000);
+      if (!best || finish < best.finish) best = { stopKey: occ.stop.key, distanceMiles: dist, finish };
+    }
+    if (!best) continue;
+    if (bestFinish && best.finish.getTime() >= bestFinish.getTime()) continue;
+    bestFinish = best.finish;
+    candidates.push(reconstruct(k, best.stopKey, best.distanceMiles));
   }
 
   candidates.sort((a, b) => a.totalMinutes - b.totalMinutes);

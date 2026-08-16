@@ -63,6 +63,7 @@ function RootLayoutInner() {
         <Stack.Screen name="disruptions" options={{ headerShown: false }} />
         <Stack.Screen name="help" options={{ headerShown: false }} />
         <Stack.Screen name="notifications" options={{ headerShown: false }} />
+        <Stack.Screen name="route-alert-new" options={{ headerShown: false }} />
         <Stack.Screen name="proximity-alerts" options={{ headerShown: false }} />
         <Stack.Screen name="proximity-alerts-new" options={{ headerShown: false }} />
       </Stack>
