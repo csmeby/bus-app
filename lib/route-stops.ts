@@ -19,6 +19,14 @@ export type DirectionPattern = {
   // (circulator routes with no real direction split), same case
   // server/alerts.py already treats as "no direction to filter on."
   directionKey?: string;
+  // This pattern's first stop code - a physically stable stand-in for
+  // directionKey. direction_key UUIDs are session-scoped upstream
+  // identifiers that rotate every ~12h pattern rebuild (or sooner on a
+  // session reinit), so persisting one in a saved alert config goes stale
+  // within hours. The first stop of a given direction doesn't move, so
+  // server/alerts.py re-resolves the CURRENT direction_key from this anchor
+  // on every check instead of trusting a UUID captured at save time.
+  anchorStopCode?: string;
   coordinates: { latitude: number; longitude: number }[];
   stops: RouteStopRow[];
 };
@@ -91,6 +99,7 @@ export async function getRoutePatterns(route: string, apiBase: string): Promise<
     const key = patternKey.toLowerCase();
     const entry: DirectionPattern = {
       directionKey: (pattern as any)?.direction_key || undefined,
+      anchorStopCode: (pattern as any)?.stops?.[0]?.code || undefined,
       coordinates: ((pattern as any)?.coordinates as any[] ?? []).map(p => ({ latitude: p.lat, longitude: p.lng })),
       stops: stopsFromPattern(pattern),
     };

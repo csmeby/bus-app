@@ -34,6 +34,7 @@ const DIRECTION_LABELS: Record<Direction, string> = { inbound: 'Inbound', outbou
 type NumberedStop = RouteStopRow & {
   direction: Direction;
   directionKey?: string;
+  anchorStopCode?: string;
   number: number;
 };
 
@@ -175,16 +176,16 @@ export default function NewProximityAlertScreen() {
     let n = 0;
     (routePatterns?.outbound?.stops ?? []).forEach(s => {
       n += 1;
-      out.push({ ...s, direction: 'outbound', directionKey: routePatterns?.outbound?.directionKey, number: n });
+      out.push({ ...s, direction: 'outbound', directionKey: routePatterns?.outbound?.directionKey, anchorStopCode: routePatterns?.outbound?.anchorStopCode, number: n });
     });
     (routePatterns?.inbound?.stops ?? []).forEach(s => {
       n += 1;
-      out.push({ ...s, direction: 'inbound', directionKey: routePatterns?.inbound?.directionKey, number: n });
+      out.push({ ...s, direction: 'inbound', directionKey: routePatterns?.inbound?.directionKey, anchorStopCode: routePatterns?.inbound?.anchorStopCode, number: n });
     });
     (routePatterns?.circulator ?? []).forEach(p => {
       p.stops.forEach(s => {
         n += 1;
-        out.push({ ...s, direction: 'circulator', directionKey: p.directionKey, number: n });
+        out.push({ ...s, direction: 'circulator', directionKey: p.directionKey, anchorStopCode: p.anchorStopCode, number: n });
       });
     });
     return out;
@@ -264,7 +265,7 @@ export default function NewProximityAlertScreen() {
         stopCode: stop.code,
         stopName: stop.name,
         routes: [route, ...[...includedSharedRoutes]],
-        directionKey: stop.directionKey,
+        directionAnchorStop: stop.anchorStopCode,
         thresholdMinutes: parseInt(thresholdMinutes, 10) || 5,
         schedule,
       };

@@ -32,6 +32,7 @@ import { findFleetInfo, fleetNotesFor, type FleetBlock } from '@/constants/fleet
 import { ICON_SCALE, useAccessibility, type IconSize as IconSizeType } from '@/context/accessibility-context';
 import { GOOGLE_MAPS_IOS_READY, useMapProvider } from '@/context/map-provider-context';
 import { useFavorites } from '@/context/favorites-context';
+import { useLockedRoutes } from '@/context/locked-routes-context';
 import { useUnitCodes } from '@/context/unit-codes-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { API_BASE } from '@/lib/api-base';
@@ -545,6 +546,7 @@ export default function MapScreen() {
   const isGoogleMaps = Platform.OS === 'android' || provider === PROVIDER_GOOGLE;
   const insets = useSafeAreaInsets();
   const { isFavorite } = useFavorites();
+  const { lockedRoutes, isLocked } = useLockedRoutes();
   const { enabled: unitCodesEnabled } = useUnitCodes();
 
   // Whether we've been granted location permission - gates showsUserLocation
@@ -667,11 +669,14 @@ export default function MapScreen() {
   // picker is (re)opened so its normal dismiss (✕/backdrop tap) is unaffected.
   const [routePickerAnimation, setRoutePickerAnimation] = useState<'slide' | 'none'>('slide');
   // route -> the dirKey the rider has explicitly picked as "full strength"
-  // for that route. Unset falls back to whichever pattern is labeled
-  // 'inbound' (see routeDirKinds / getPrimaryDir) - the rider can flip it
-  // per route since that label isn't always the real-world correct side
-  // (see the DirKind comment above).
-  const [routePrimaryDir, setRoutePrimaryDir] = useState<Record<string, string>>({});
+  // for that route, or the literal string 'both' to render every direction
+  // at full strength (stops included - see routeStops' visibleStopCodes
+  // below). Unset falls back to whichever pattern is labeled 'inbound' (see
+  // routeDirKinds / getPrimaryDir) - the rider can flip it per route since
+  // that label isn't always the real-world correct side (see the DirKind
+  // comment above).
+  type RouteDirSelection = string | 'both';
+  const [routePrimaryDir, setRoutePrimaryDir] = useState<Record<string, RouteDirSelection>>({});
 
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
   const [stopTimes, setStopTimes] = useState<TimeEntry[]>([]);
@@ -746,6 +751,42 @@ export default function MapScreen() {
   // function without retriggering itself on every selection change.
   const currentSelectedRoutesRef = useRef(selectedRoutes);
   currentSelectedRoutesRef.current = selectedRoutes;
+
+  // route -> a generation counter, bumped whenever that route drops OUT of
+  // selectedRoutes (deselected directly, or cleared by the close-on-blur
+  // handler above). The reroute-overlay Polylines below key off this
+  // (alongside route+dk) even though they're otherwise deliberately
+  // always-mounted/stable-keyed (see their own comment) - unlike the base
+  // polylines, which unmount for real on deselection, the reroute overlay
+  // only ever transitions via PROPS (active -> transparent/0-width) to
+  // avoid the ghost/crash bug that comes from unmounting them outright. On
+  // Android's Google Maps renderer that prop-only transition can get stuck
+  // showing its last visible state - confirmed on a route that was
+  // actively detoured, closed, then not reselected after a tab switch (the
+  // close-on-blur/reopen-on-focus cycle flips EVERY revealed route's
+  // `active` at once, the same "many polylines change props simultaneously"
+  // shape as the Icon Size stuck-stroke bug). Bumping this forces a real
+  // unmount+remount instead, but ONLY for the route(s) that actually
+  // dropped out - typically 0-2 routes at a time (how many are ever
+  // actively rerouted at once), well inside the small-batch range already
+  // proven safe elsewhere in this file; it's mass SIMULTANEOUS INSERTS that
+  // are the real crash risk (see rampSelectedRoutesTo's comment), not a
+  // handful of paired remove+reinsert pairs from a user-initiated
+  // deselection.
+  const [routeDeselectGen, setRouteDeselectGen] = useState<Record<string, number>>({});
+  const prevSelectedRoutesForGenRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const prev = prevSelectedRoutesForGenRef.current;
+    const removed = [...prev].filter(r => !selectedRoutes.has(r));
+    if (removed.length > 0) {
+      setRouteDeselectGen(g => {
+        const next = { ...g };
+        removed.forEach(r => { next[r] = (next[r] ?? 0) + 1; });
+        return next;
+      });
+    }
+    prevSelectedRoutesForGenRef.current = selectedRoutes;
+  }, [selectedRoutes]);
 
   // Which routes' Polylines are actually allowed to mount into AIRMap once
   // mapReady flips true. Separate from routeLines/routeLinesRef's own
@@ -852,21 +893,39 @@ export default function MapScreen() {
   }, [routeInfo, routeLines]);
 
   // Which of a route's (at most two) dirKeys currently renders at full
-  // strength: the rider's explicit pick (routePrimaryDir) if it's still a
-  // real key for this route, else whichever pattern paths.py labeled
-  // 'inbound', else just the first key. undefined for a route with no
-  // patterns loaded yet.
-  const getPrimaryDir = useCallback((route: string): string | undefined => {
+  // strength, or 'both' if the rider picked that: the rider's explicit pick
+  // (routePrimaryDir) if it's 'both' or still a real key for this route,
+  // else whichever pattern paths.py labeled 'inbound', else just the first
+  // key. undefined for a route with no patterns loaded yet.
+  const getPrimaryDir = useCallback((route: string): RouteDirSelection | undefined => {
     const keys = Object.keys(routeLines[route] ?? {});
     if (keys.length === 0) return undefined;
     const picked = routePrimaryDir[route];
+    if (picked === 'both') return 'both';
     if (picked && keys.includes(picked)) return picked;
     return keys.find(k => routeDirKinds[route]?.[k] === 'inbound') ?? keys[0];
   }, [routeLines, routeDirKinds, routePrimaryDir]);
 
-  const setRouteDirection = useCallback((route: string, dirKey: string) => {
+  const setRouteDirection = useCallback((route: string, dirKey: RouteDirSelection) => {
     setRoutePrimaryDir(prev => ({ ...prev, [route]: dirKey }));
   }, []);
+
+  // Cycles a route through outbound -> inbound -> both directions -> back to
+  // outbound (skips straight to whichever exists if the route's kind data
+  // is incomplete - see routeDirKinds' own comment on why paths.py's labels
+  // aren't always trustworthy). Used by the on-map quick-toggle pill so a
+  // rider never has to reopen the route selector sheet just to flip this.
+  const cycleRouteDirection = useCallback((route: string) => {
+    const keys = Object.keys(routeLines[route] ?? {});
+    const outboundKey = keys.find(k => routeDirKinds[route]?.[k] === 'outbound') ?? keys[0];
+    const inboundKey = keys.find(k => routeDirKinds[route]?.[k] === 'inbound') ?? keys[1];
+    const cycle: RouteDirSelection[] = [outboundKey, inboundKey, 'both'].filter((k): k is RouteDirSelection => !!k);
+    if (cycle.length < 2) return;
+    const current = getPrimaryDir(route) ?? cycle[0];
+    const idx = cycle.indexOf(current);
+    const next = cycle[(idx + 1) % cycle.length];
+    setRouteDirection(route, next);
+  }, [routeLines, routeDirKinds, getPrimaryDir, setRouteDirection]);
 
   // A shared stop can be a timepoint for one route and not another (see
   // paths.py's TIMEPOINT_ROUTE_EXCLUSIONS), so this depends on which route(s)
@@ -925,7 +984,7 @@ export default function MapScreen() {
       const stale = !!staleRouteMap[bus.route];
       const kind = routeDirKinds[bus.route]?.[bus.directionKey] ?? 'circulator';
       const primary = getPrimaryDir(bus.route);
-      const isSecondary = !stale && kind !== 'circulator' && bus.directionKey !== primary;
+      const isSecondary = !stale && kind !== 'circulator' && primary !== 'both' && bus.directionKey !== primary;
       m.set(bus.name, isSecondary ? 0.55 : 1);
     });
     return m;
@@ -988,7 +1047,7 @@ export default function MapScreen() {
         const stale = !!staleRouteMap[route];
         const primary = getPrimaryDir(route);
         return Object.entries(dirs).some(([dk, info]) =>
-          (info.unservedStops ?? []).includes(stop.code) && (stale || dk === primary));
+          (info.unservedStops ?? []).includes(stop.code) && (stale || primary === 'both' || dk === primary));
       });
       if (unservedHere) {
         visible.add(stop.code);
@@ -1015,6 +1074,10 @@ export default function MapScreen() {
         if (staleRouteMap[r]) return true;
         const keys = stop.dirKeys[r] ?? [];
         if (keys.length === 0) return false;
+        const primary = getPrimaryDir(r);
+        // "Both directions" mode: every stop on this route counts,
+        // regardless of which direction(s) it belongs to.
+        if (primary === 'both') return true;
         // Match by direction KIND (inbound/outbound/circulator), not raw
         // dirKey equality. stop.dirKeys accumulates additively across every
         // applyPatterns call this session and never prunes (see that
@@ -1028,7 +1091,7 @@ export default function MapScreen() {
         // still completely legitimate for the route's current primary
         // direction. routeDirKinds is keyed the same (possibly-stale) way
         // stop.dirKeys is, so this bridges the gap either way.
-        const primaryKind = routeDirKinds[r]?.[getPrimaryDir(r) ?? ''] ?? 'circulator';
+        const primaryKind = routeDirKinds[r]?.[primary ?? ''] ?? 'circulator';
         return keys.some(k => (routeDirKinds[r]?.[k] ?? 'circulator') === primaryKind);
       });
       if (show) visible.add(stop.code);
@@ -1053,6 +1116,16 @@ export default function MapScreen() {
     if (selectedRoutes.size === 1) return `Route ${[...selectedRoutes][0]}`;
     return `${selectedRoutes.size} routes selected`;
   }, [selectedRoutes]);
+
+  // Selected routes with a real (non-circulator) inbound/outbound split -
+  // same "hasMultipleDirs" shape the route-selector sheet's own dirToggleWrap
+  // uses per row, just filtered down to what's actually currently open so
+  // the on-map quick-toggle row only shows routes it can act on.
+  const quickDirectionRoutes = useMemo(() => {
+    return [...selectedRoutes]
+      .filter(route => !staleRouteMap[route] && Object.keys(routeLines[route] ?? {}).length > 1)
+      .sort();
+  }, [selectedRoutes, staleRouteMap, routeLines]);
 
   const toggleRoute = useCallback((route: string) => {
     setSelectedRoutes(prev => {
@@ -1167,6 +1240,22 @@ export default function MapScreen() {
       };
     }, [isGoogleMaps, rampSelectedRoutesTo, cancelGradualSelectAll])
   );
+
+  // Routes the rider has "locked" (Favorites screen) auto-select once on
+  // cold launch - genuinely once, not on every focus like the Google Maps
+  // reopen effect above, and only after LockedRoutesProvider has actually
+  // finished its AsyncStorage read (lockedRoutes starts as [] either way,
+  // so there's nothing to distinguish "not loaded yet" from "no locks" -
+  // but that's fine, both cases correctly result in no-op here). Goes
+  // through the same staggered rampSelectedRoutesTo as everything else that
+  // can select several routes in one shot - see its own comment for why a
+  // direct setSelectedRoutes would risk the mass-insert crash.
+  const hasAppliedLockedRoutesRef = useRef(false);
+  useEffect(() => {
+    if (hasAppliedLockedRoutesRef.current || lockedRoutes.length === 0) return;
+    hasAppliedLockedRoutesRef.current = true;
+    rampSelectedRoutesTo(ALL_ROUTES.filter(r => isLocked(r)));
+  }, [lockedRoutes, isLocked, rampSelectedRoutesTo]);
 
   // Active times list: real-time when stopDate is null, schedule otherwise
   const visibleStopTimes = useMemo(() => {
@@ -2216,7 +2305,7 @@ export default function MapScreen() {
 
           return Object.entries(dirs).map(([dirKey, path]) => {
             const kind = routeDirKinds[route]?.[dirKey] ?? 'circulator';
-            const isSecondary = !stale && kind !== 'circulator' && dirKey !== primary;
+            const isSecondary = !stale && kind !== 'circulator' && primary !== 'both' && dirKey !== primary;
             const strokeColor = isSecondary ? dimColor(color) : color;
             const strokeWidth = isSecondary ? 3 : 5;
             return (
@@ -2253,7 +2342,7 @@ export default function MapScreen() {
             if (!Array.isArray(info?.baselineCoordinates) || info.baselineCoordinates.length < 2) return [];
             const active = routeSelected && !!reroutes[route]?.[dk];
             const kind = routeDirKinds[route]?.[dk] ?? 'circulator';
-            const isSecondary = !stale && kind !== 'circulator' && dk !== primary;
+            const isSecondary = !stale && kind !== 'circulator' && primary !== 'both' && dk !== primary;
             // The red "this is what you're missing" dashed baseline only
             // makes sense for the direction currently at full strength - on
             // the secondary direction it's dropped entirely (not just
@@ -2262,12 +2351,15 @@ export default function MapScreen() {
             const baseActive = active && !isSecondary;
             const baseColor = baseActive ? '#DC2626' : 'rgba(0,0,0,0)';
             const curColor = !active ? 'rgba(0,0,0,0)' : isSecondary ? dimColor(color) : color;
-            // STABLE key (route+dk only), matching every other polyline in
-            // this file - coordinates update in place via props instead of
-            // remounting.
+            // Stable across ordinary prop updates (route+dk only), but with
+            // a generation suffix that bumps specifically when this route
+            // drops out of selectedRoutes - see routeDeselectGen's own
+            // comment for why that forced remount is needed here despite
+            // every other polyline in this file preferring a stable key.
+            const gen = routeDeselectGen[route] ?? 0;
             return [
               <Polyline
-                key={`reroute-base-${route}-${dk}`}
+                key={`reroute-base-${route}-${dk}-g${gen}`}
                 coordinates={info.baselineCoordinates}
                 strokeColor={baseColor}
                 strokeWidth={baseActive ? 3 : 0}
@@ -2275,7 +2367,7 @@ export default function MapScreen() {
                 zIndex={2}
               />,
               <Polyline
-                key={`reroute-cur-${route}-${dk}`}
+                key={`reroute-cur-${route}-${dk}-g${gen}`}
                 coordinates={info.currentCoordinates}
                 strokeColor={curColor}
                 strokeWidth={active ? (isSecondary ? 3 : 5) : 0}
@@ -2418,6 +2510,36 @@ export default function MapScreen() {
           <Text style={[styles.routeSelectorText, { color: c.text }]} numberOfLines={1}>{routeSelectorLabel}</Text>
           <Text style={[styles.chevron, { color: c.textSecondary }]}>›</Text>
         </TouchableOpacity>
+        {/* Quick per-route direction cycle, without reopening the sheet
+            below - cycles outbound -> inbound -> both directions (full
+            strength, stops included on both sides - see visibleStopCodes)
+            -> back to outbound. Same setRouteDirection/state the sheet's own
+            dirChipFull row uses, just reachable straight from the map. */}
+        {quickDirectionRoutes.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickDirRow} contentContainerStyle={styles.quickDirRowContent}>
+            {quickDirectionRoutes.map(route => {
+              const primary = getPrimaryDir(route);
+              const kind = primary && primary !== 'both' ? routeDirKinds[route]?.[primary] : undefined;
+              const label = primary === 'both'
+                ? 'Both directions'
+                : routeInfo[route]?.directions.find(d => d.key === primary)?.name
+                  || (kind === 'outbound' ? 'Outbound' : 'Inbound');
+              const color = routeColors[route] ?? c.tint;
+              return (
+                <TouchableOpacity
+                  key={route}
+                  style={[styles.quickDirPill, { backgroundColor: color }]}
+                  onPress={() => cycleRouteDirection(route)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Route ${route} showing ${label}. Tap to switch direction`}
+                >
+                  <Text style={styles.quickDirPillText} numberOfLines={1}>{route} · {label}</Text>
+                  <MaterialIcons name="swap-horiz" size={14} color="#fff" />
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
         {isOffline && (
           <View
             style={styles.offlineBanner}
@@ -3810,6 +3932,17 @@ const styles = StyleSheet.create({
   },
   routeSelectorText: { fontSize: 15, fontWeight: '500', flex: 1 },
   chevron: { fontSize: 20, fontWeight: '300', marginLeft: 4 },
+  quickDirRow: { marginTop: 8 },
+  quickDirRowContent: { gap: 6 },
+  quickDirPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  quickDirPillText: { fontSize: 12, fontWeight: '600', color: '#fff' },
   offlineBanner: {
     flexDirection: 'row',
     alignItems: 'center',

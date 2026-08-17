@@ -14,6 +14,7 @@ import { TourProvider } from '@/lib/tour-context';
 import { AccessibilityProvider } from '@/context/accessibility-context';
 import { FavoritesProvider } from '@/context/favorites-context';
 import { getStoredLanguage, LanguageProvider } from '@/context/language-context';
+import { LockedRoutesProvider } from '@/context/locked-routes-context';
 import { MapProviderProvider } from '@/context/map-provider-context';
 import { ThemeProvider, useAppTheme } from '@/context/theme-context';
 import { UnitCodesProvider } from '@/context/unit-codes-context';
@@ -112,11 +113,13 @@ export default function RootLayout() {
           <LanguageProvider>
             <MapProviderProvider>
               <FavoritesProvider>
-                <UnitCodesProvider>
-                  <TourProvider>
-                    <RootLayoutInner />
-                  </TourProvider>
-                </UnitCodesProvider>
+                <LockedRoutesProvider>
+                  <UnitCodesProvider>
+                    <TourProvider>
+                      <RootLayoutInner />
+                    </TourProvider>
+                  </UnitCodesProvider>
+                </LockedRoutesProvider>
               </FavoritesProvider>
             </MapProviderProvider>
           </LanguageProvider>

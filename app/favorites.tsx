@@ -1,3 +1,4 @@
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import React from 'react';
 import { ScrollView, StyleSheet, View, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -6,6 +7,7 @@ import { ScaledText as Text } from '@/components/scaled-text';
 import { ScreenHeader } from '@/components/screen-header';
 import { useFavorites } from '@/context/favorites-context';
 import { useLanguage } from '@/context/language-context';
+import { useLockedRoutes } from '@/context/locked-routes-context';
 import { useThemeColors } from '@/context/theme-context';
 import { ALL_ROUTES } from '@/constants/routes';
 import { translate } from '@/lib/translations';
@@ -14,6 +16,7 @@ import routePatterns from '../routes_patterns.json';
 export default function FavoritesScreen() {
   const c = useThemeColors();
   const { isFavorite, toggleFavorite } = useFavorites();
+  const { isLocked, toggleLock } = useLockedRoutes();
   const { language } = useLanguage();
   const t = (s: string) => translate(s, language);
 
@@ -21,7 +24,7 @@ export default function FavoritesScreen() {
     <SafeAreaView style={[styles.root, { backgroundColor: c.background }]}>
       <ScreenHeader title={t('Favorite Routes')} bottomMargin={8} />
       <Text style={[styles.hint, { color: c.textSecondary }]}>
-        {t('Favorited routes appear at the top of the route selector on the map.')}
+        {t('Favorited routes appear at the top of the route selector on the map. Locked routes open automatically when you launch the app.')}
       </Text>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -29,6 +32,7 @@ export default function FavoritesScreen() {
           {ALL_ROUTES.map((route, i) => {
             const info = (routePatterns as any)[route];
             const fav = isFavorite(route);
+            const locked = isLocked(route);
             return (
               <TouchableOpacity
                 key={route}
@@ -51,6 +55,17 @@ export default function FavoritesScreen() {
                     {info?.name ?? `Route ${route}`}
                   </Text>
                 </View>
+                <TouchableOpacity
+                  onPress={() => toggleLock(route)}
+                  hitSlop={10}
+                  style={styles.lockBtn}
+                  accessibilityRole="checkbox"
+                  accessibilityLabel={`Lock route ${route}`}
+                  accessibilityHint={locked ? t('Stops this route from opening automatically on launch') : t('Opens this route automatically when you launch the app')}
+                  accessibilityState={{ checked: locked }}
+                >
+                  <MaterialIcons name={locked ? 'lock' : 'lock-open'} size={20} color={locked ? c.tint : c.border} />
+                </TouchableOpacity>
                 <Text style={[styles.star, { color: fav ? '#F59E0B' : c.border }]}>{fav ? '★' : '☆'}</Text>
               </TouchableOpacity>
             );
@@ -72,5 +87,6 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: 16, fontWeight: '500' },
   routeTag: { minWidth: 46, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, alignItems: 'center' },
   routeTagText: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  lockBtn: { padding: 2 },
   star: { fontSize: 22 },
 });

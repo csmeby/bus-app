@@ -125,16 +125,23 @@ export type ProximityAlertConfig = {
   stopCode: string;
   stopName: string;
   routes: string[];
-  // The specific direction (upstream direction_key UUID) to watch for
-  // `routes[0]` (the originally-picked route) at this stop, when the rider
-  // picked one - set whenever this physical stop is served by more than one
-  // direction of that route (so "outbound toward downtown" vs "inbound
-  // toward campus" don't both trigger the same alert). Undefined = watch
-  // every direction of every included route at this stop, same as before
-  // this field existed. Only ever applied to routes[0] server-side - the
-  // other routes opted into via the "shared stop" step aren't
-  // direction-filtered.
-  directionKey?: string;
+  // The specific direction to watch for `routes[0]` (the originally-picked
+  // route) at this stop, when the rider picked one - set whenever this
+  // physical stop is served by more than one direction of that route (so
+  // "outbound toward downtown" vs "inbound toward campus" don't both
+  // trigger the same alert). Undefined = watch every direction of every
+  // included route at this stop, same as before this field existed. Only
+  // ever applied to routes[0] server-side - the other routes opted into via
+  // the "shared stop" step aren't direction-filtered.
+  //
+  // This is the FIRST STOP CODE of that direction's pattern, not the
+  // upstream direction_key UUID - direction_key is a session-scoped
+  // upstream identifier that rotates every ~12h pattern rebuild (or sooner
+  // on a session reinit), so persisting one here would go stale within
+  // hours. A pattern's first stop doesn't move, so server/alerts.py
+  // re-resolves the CURRENT direction_key from this anchor on every check
+  // instead of trusting a UUID captured at save time.
+  directionAnchorStop?: string;
   thresholdMinutes: number;       // default 5 - "notify me when a bus is this many minutes away"
   schedule: RideWindow[];         // empty = any time, same semantics as RouteAlertConfig.schedule
 };
