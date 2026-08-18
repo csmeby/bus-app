@@ -15,6 +15,7 @@ import { API_BASE } from '@/lib/api-base';
 import {
   AlertPrefs,
   NOTIFICATIONS_ENABLED_KEY,
+  ProximityAlertConfig,
   RouteAlertConfig,
   registerPushTokenWithServer,
   requestNotificationPermission,
@@ -27,6 +28,12 @@ const EMPTY_PREFS: AlertPrefs = { routeConfigs: [], proximityConfigs: [] };
 function summarizeRouteAlert(rc: RouteAlertConfig): string {
   const parts = [`${rc.delayThresholdMinutes}+ min late`];
   parts.push(rc.schedule.length === 0 ? 'Always' : `${rc.schedule.length} time window${rc.schedule.length === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+}
+
+function summarizeProximityAlert(pc: ProximityAlertConfig): string {
+  const parts = [`Route${pc.routes.length > 1 ? 's' : ''} ${pc.routes.join(', ')}`, `${pc.thresholdMinutes} min away`];
+  parts.push(pc.schedule.length === 0 ? 'Always' : `${pc.schedule.length} time window${pc.schedule.length === 1 ? '' : 's'}`);
   return parts.join(' · ');
 }
 
@@ -82,6 +89,13 @@ export default function NotificationsScreen() {
 
   const removeRoute = async (route: string) => {
     const next: AlertPrefs = { ...prefs, routeConfigs: prefs.routeConfigs.filter(rc => rc.route !== route) };
+    setPrefs(next);
+    await AsyncStorage.setItem(PREFS_KEY, JSON.stringify(next));
+    registerPushTokenWithServer(API_BASE, next, language).catch(() => {});
+  };
+
+  const removeProximityAlert = async (id: string) => {
+    const next: AlertPrefs = { ...prefs, proximityConfigs: prefs.proximityConfigs.filter(pc => pc.id !== id) };
     setPrefs(next);
     await AsyncStorage.setItem(PREFS_KEY, JSON.stringify(next));
     registerPushTokenWithServer(API_BASE, next, language).catch(() => {});
@@ -177,22 +191,49 @@ export default function NotificationsScreen() {
             <Text style={[styles.sectionDesc, { color: c.textSecondary }]}>
               Get notified when a bus is about to reach a specific stop.
             </Text>
+
+            {prefs.proximityConfigs.length === 0 && (
+              <Text style={[styles.sectionDesc, { color: c.textSecondary, fontStyle: 'italic' }]}>
+                No arrival alerts added yet. Add one below.
+              </Text>
+            )}
+
+            {prefs.proximityConfigs.map(pc => (
+              <TouchableOpacity
+                key={pc.id}
+                style={[styles.routeCard, { backgroundColor: c.surface, borderColor: c.border }]}
+                onPress={() => router.push('/proximity-alerts' as any)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`${pc.stopName} arrival alert settings`}
+              >
+                <View style={styles.routeCardText}>
+                  <Text style={[styles.routeCardTitle, { color: c.text }]} numberOfLines={1}>{pc.stopName}</Text>
+                  <Text style={[styles.routeCardSubtitle, { color: c.textSecondary }]} numberOfLines={1}>
+                    {summarizeProximityAlert(pc)}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => removeProximityAlert(pc.id)}
+                  hitSlop={8}
+                  style={{ marginRight: 4 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove alert for ${pc.stopName}`}
+                >
+                  <MaterialIcons name="close" size={18} color={c.textSecondary} />
+                </TouchableOpacity>
+                <MaterialIcons name="chevron-right" size={22} color={c.textSecondary} />
+              </TouchableOpacity>
+            ))}
+
             <TouchableOpacity
-              style={[styles.arrivalAlertsBtn, { backgroundColor: c.surface, borderColor: c.border }]}
-              onPress={() => router.push('/proximity-alerts' as any)}
-              activeOpacity={0.7}
+              style={[styles.addBtn, { borderColor: c.tint }]}
+              onPress={() => router.push('/proximity-alerts-new' as any)}
               accessibilityRole="button"
-              accessibilityLabel="Manage bus arrival alerts"
+              accessibilityLabel="Add a new bus arrival alert"
             >
-              <View style={styles.rowText}>
-                <Text style={[styles.rowLabel, { color: c.text }]}>
-                  {prefs.proximityConfigs.length === 0
-                    ? 'No arrival alerts set up yet'
-                    : `${prefs.proximityConfigs.length} arrival alert${prefs.proximityConfigs.length === 1 ? '' : 's'}`}
-                </Text>
-                <Text style={[styles.rowDesc, { color: c.textSecondary }]}>Tap to add or manage</Text>
-              </View>
-              <MaterialIcons name="chevron-right" size={22} color={c.textSecondary} />
+              <MaterialIcons name="add" size={18} color={c.tint} />
+              <Text style={[styles.addBtnText, { color: c.tint }]}>Add arrival alert</Text>
             </TouchableOpacity>
           </>
         )}
@@ -229,9 +270,4 @@ const styles = StyleSheet.create({
     borderRadius: 12, borderWidth: 1.5, borderStyle: 'dashed', paddingVertical: 14, marginTop: 4, marginBottom: 10,
   },
   addBtnText: { fontSize: 15, fontWeight: '700' },
-
-  arrivalAlertsBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 10,
-  },
 });

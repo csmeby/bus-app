@@ -16,7 +16,7 @@ module.exports = {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.csmeby.ctt",
-      buildNumber: "3",
+      buildNumber: "4",
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
         NSAppTransportSecurity: {

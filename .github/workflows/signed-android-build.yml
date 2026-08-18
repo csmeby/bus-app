@@ -1,0 +1,109 @@
+name: Signed Android build (APK for direct install)
+
+# Manual trigger only. Produces a signed, installable .apk as a downloadable
+# artifact — no Google Play Developer account, no EAS/Expo account, no store
+# submission of any kind. Android (unlike iOS) doesn't require any developer
+# program membership just to sign an app; the release keystore below is
+# something you generate yourself, once, for free, with the `keytool` that
+# ships with any JDK. This is purely for sideloading (rider downloads the
+# .apk from the workflow run and installs it directly).
+#
+# ── One-time setup: generate a release keystore ──────────────────────────
+#   keytool -genkeypair -v -keystore release.jks -alias century-tree-transit \
+#     -keyalg RSA -keysize 2048 -validity 10000
+#   (prompts for a keystore password and a key password — can be the same
+#   value. Keep release.jks and both passwords forever: if you lose them,
+#   every future build is a DIFFERENT signing identity, and Android refuses
+#   to install it as an "update" over anything signed with the old one —
+#   riders would have to uninstall and reinstall from scratch.)
+#
+# ── Required repo secrets (Settings → Secrets and variables → Actions) ──
+#   GOOGLE_MAPS_API_KEY              same key already used by the iOS
+#                                     workflows (see app.config.js) — needed
+#                                     by the prebuild step below
+#   ANDROID_RELEASE_KEYSTORE_BASE64  base64 of release.jks from above
+#                                     (PowerShell, from wherever you saved it):
+#                                       [Convert]::ToBase64String([IO.File]::ReadAllBytes("release.jks")) | Set-Clipboard
+#   ANDROID_RELEASE_KEYSTORE_PASSWORD  the keystore password from keytool
+#   ANDROID_RELEASE_KEY_ALIAS          the -alias value from keytool
+#                                       (century-tree-transit, if you used
+#                                       the command above verbatim)
+#   ANDROID_RELEASE_KEY_PASSWORD       the key password from keytool
+#
+# Never commit release.jks — bus/.gitignore already excludes *.jks, same as
+# the .p12/.key patterns the iOS signing files rely on (see
+# SIGNING_KEYS_README.txt at the repo root).
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+          cache: "gradle"
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Prebuild native Android project
+        env:
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+        run: npx expo prebuild --platform android --no-install
+
+      # Expo's generated android/app/build.gradle signs the "release" build
+      # type with the shared, public debug keystore by default (its own
+      # comment literally says "Caution! In production, you need to generate
+      # your own keystore file.") — that still installs fine, but it's not a
+      # private signing identity, so this swaps it for a real release
+      # signingConfig sourced from the env vars the next step provides. See
+      # .github/scripts/patch-android-release-signing.js for what this does
+      # and why it fails loudly instead of silently shipping a debug-signed
+      # "release" APK if Expo's template ever changes shape.
+      - name: Configure release signing in build.gradle
+        working-directory: android
+        run: node ../.github/scripts/patch-android-release-signing.js
+
+      - name: Decode release keystore
+        run: |
+          echo -n "$ANDROID_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+
+      - name: Build signed release APK
+        working-directory: android
+        env:
+          ANDROID_RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Locate signed APK
+        working-directory: android
+        run: find app/build/outputs/apk/release -name "*.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: century-tree-transit-signed-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 14
+
+      # Best-effort cleanup so the decoded keystore doesn't linger past this
+      # job even if an earlier step already failed.
+      - name: Clean up keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
