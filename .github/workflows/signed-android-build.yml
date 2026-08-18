@@ -48,12 +48,6 @@ jobs:
           node-version: "22"
           cache: "npm"
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: "temurin"
-          java-version: "17"
-          cache: "gradle"
-
       - name: Install JS dependencies
         run: npm ci
 
@@ -61,6 +55,18 @@ jobs:
         env:
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
         run: npx expo prebuild --platform android --no-install
+
+      # setup-java's Gradle cache hashes gradle files (build.gradle,
+      # gradle-wrapper.properties, etc.) to build its cache key - those don't
+      # exist until the prebuild step above generates android/ from scratch
+      # (it's gitignored, not checked in), so this step has to run AFTER
+      # prebuild or the cache step fails immediately with "No file...
+      # matched" before Java is even installed.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+          cache: "gradle"
 
       # Expo's generated android/app/build.gradle signs the "release" build
       # type with the shared, public debug keystore by default (its own
