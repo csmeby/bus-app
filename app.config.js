@@ -77,7 +77,16 @@ module.exports = {
           androidGoogleMapsApiKey: googleMapsApiKey,
           iosGoogleMapsApiKey: googleMapsApiKey
         }
-      ]
+      ],
+      // Android equivalent of ios.infoPlist's NSExceptionDomains above -
+      // Android blocks plaintext HTTP by default (targetSdkVersion 36
+      // here), which was silently failing every fetch() to API_BASE
+      // (http://147.224.136.252:5000, no TLS) and showing as permanent
+      // "No connection. Showing saved routes" on Android specifically. See
+      // plugins/withAndroidNetworkSecurityConfig.js and
+      // network-security-config.xml for why this is scoped to just that
+      // one IP rather than a blanket cleartext allowance.
+      "./plugins/withAndroidNetworkSecurityConfig"
     ],
     experiments: {
       typedRoutes: true,

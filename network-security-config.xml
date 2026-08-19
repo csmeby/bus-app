@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android blocks plaintext (HTTP) network traffic by default for any app
+  targeting API 28+ (this app targets 36) - every fetch() call to API_BASE
+  (see lib/api-base.ts: http://147.224.136.252:5000, plain HTTP, no TLS
+  cert for a bare IP) was silently failing on Android as a result, which is
+  what the app's own offline-fallback logic (index.tsx's isOffline state)
+  correctly reported as "No connection. Showing saved routes" - it wasn't
+  wrong, the network truly was being blocked at the OS level before the
+  request ever left the device.
+
+  This is the Android equivalent of app.config.js's iOS
+  NSExceptionDomains entry for the same IP - a narrowly scoped exception
+  for exactly this one backend, not a blanket cleartext allowance for
+  every domain the app might ever talk to.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">147.224.136.252</domain>
+    </domain-config>
+</network-security-config>
