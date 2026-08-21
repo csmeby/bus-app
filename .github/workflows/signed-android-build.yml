@@ -29,9 +29,18 @@ name: Signed Android build (APK for direct install)
 #                                       (century-tree-transit, if you used
 #                                       the command above verbatim)
 #   ANDROID_RELEASE_KEY_PASSWORD       the key password from keytool
+#   GOOGLE_SERVICES_JSON_BASE64        base64 of google-services.json (from
+#                                       the Firebase console, project
+#                                       centurytreetransit → Android app
+#                                       com.csmeby.ctt) - required for
+#                                       Android push notifications at all
+#                                       (see app.config.js's
+#                                       android.googleServicesFile comment):
+#                                         [Convert]::ToBase64String([IO.File]::ReadAllBytes("google-services.json")) | Set-Clipboard
 #
-# Never commit release.jks — bus/.gitignore already excludes *.jks, same as
-# the .p12/.key patterns the iOS signing files rely on (see
+# Never commit release.jks or google-services.json — bus/.gitignore already
+# excludes both (*.jks and google-services.json specifically), same as the
+# .p12/.key patterns the iOS signing files rely on (see
 # SIGNING_KEYS_README.txt at the repo root).
 on:
   workflow_dispatch: {}
@@ -50,6 +59,12 @@ jobs:
 
       - name: Install JS dependencies
         run: npm ci
+
+      - name: Decode Google Services config
+        run: |
+          echo -n "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > google-services.json
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
 
       - name: Prebuild native Android project
         env:
@@ -108,8 +123,8 @@ jobs:
           path: android/app/build/outputs/apk/release/*.apk
           retention-days: 14
 
-      # Best-effort cleanup so the decoded keystore doesn't linger past this
-      # job even if an earlier step already failed.
+      # Best-effort cleanup so the decoded keystore/config don't linger past
+      # this job even if an earlier step already failed.
       - name: Clean up keystore
         if: always()
-        run: rm -f "$RUNNER_TEMP/release.jks"
+        run: rm -f "$RUNNER_TEMP/release.jks" google-services.json
