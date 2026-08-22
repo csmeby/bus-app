@@ -60,9 +60,14 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+
       - name: Decode Google Services config
         run: |
           echo -n "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > google-services.json
+          if ! node -e "JSON.parse(require('fs').readFileSync('google-services.json', 'utf8'))"; then
+            echo "::error::Decoded google-services.json is not valid JSON. GOOGLE_SERVICES_JSON_BASE64 must hold the file's BASE64 ENCODING, not its raw contents - see this workflow's header comment for the PowerShell command to generate it correctly."
+            exit 1
+          fi
         env:
           GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
 
