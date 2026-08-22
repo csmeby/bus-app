@@ -1433,6 +1433,11 @@ export default function MapScreen() {
             if (!prev.includes(dirKey)) existing.dirKeys[route] = [...prev, dirKey];
             if (isTemporary) existing.isTemporary = true;
             existing.timepointRoutes[route] = isTimepoint;
+            // This stop IS present in the current source, so its coordinate/name
+            // are authoritative here - only a stop MISSING from a fetch entirely
+            // (the reroute-closure case above) should keep its stale data.
+            existing.name = stop.name;
+            existing.coordinate = { latitude: stop.lat, longitude: stop.lng };
           } else {
             stopMap.set(stop.code, {
               code: stop.code,
