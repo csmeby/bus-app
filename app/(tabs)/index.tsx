@@ -631,6 +631,10 @@ export default function MapScreen() {
   // launch - nothing is drawn until the rider actively picks a route.
   const [selectedRoutes, setSelectedRoutes] = useState<Set<string>>(new Set());
   const [routePickerOpen, setRoutePickerOpen] = useState(false);
+  // Which roster the "Select Routes" sheet is currently browsing - purely a
+  // display filter on the picker, not on selectedRoutes itself, so switching
+  // tabs never touches what's actually shown on the map.
+  const [routeTab, setRouteTab] = useState<'regular' | 'gameday'>('regular');
 
   // Switching Accessibility > Icon Size re-renders every marker AND every
   // polyline at once (every marker's own scale prop changes) - on the
@@ -1100,22 +1104,38 @@ export default function MapScreen() {
   }, [routeStops, selectedRoutes, staleRouteMap, getPrimaryDir, reroutes, routeDirKinds]);
 
 
+  // Gameday routes (AGR, BF, G22, ...) only exist in /routes on days a game's
+  // actually scheduled - detected by name rather than a hardcoded code list
+  // since which routes run varies by opponent/season and ALL_ROUTES is the
+  // stable year-round roster. Kept entirely out of ALL_ROUTES/"All Routes" so
+  // that toggle still means exactly what it always has.
+  const gamedayRouteCodes = useMemo(
+    () => Object.keys(routeInfo).filter(r => routeInfo[r]?.name?.startsWith('Gameday')),
+    [routeInfo]
+  );
+
   // Favorited routes (set in Settings) float to the top; stable sort keeps
   // everything else in its original order.
   const sortedRoutes = useMemo(() => {
-    return [...ALL_ROUTES].sort((a, b) => {
+    const base = routeTab === 'gameday' ? gamedayRouteCodes : ALL_ROUTES;
+    return [...base].sort((a, b) => {
       const aFav = isFavorite(a) ? 0 : 1;
       const bFav = isFavorite(b) ? 0 : 1;
       return aFav - bFav;
     });
-  }, [isFavorite]);
+  }, [isFavorite, routeTab, gamedayRouteCodes]);
+
+  // Which route list the "select all" row in the picker acts on - ALL_ROUTES
+  // on the regular tab, just the currently-live gameday routes on the other.
+  const currentTabRoutes = routeTab === 'gameday' ? gamedayRouteCodes : ALL_ROUTES;
 
   const routeSelectorLabel = useMemo(() => {
     if (selectedRoutes.size === 0) return 'Select routes';
-    if (selectedRoutes.size === ALL_ROUTES.length) return 'All Routes';
+    if (selectedRoutes.size === ALL_ROUTES.length && ALL_ROUTES.every(r => selectedRoutes.has(r))) return 'All Routes';
+    if (gamedayRouteCodes.length > 0 && selectedRoutes.size === gamedayRouteCodes.length && gamedayRouteCodes.every(r => selectedRoutes.has(r))) return 'All Gameday Routes';
     if (selectedRoutes.size === 1) return `Route ${[...selectedRoutes][0]}`;
     return `${selectedRoutes.size} routes selected`;
-  }, [selectedRoutes]);
+  }, [selectedRoutes, gamedayRouteCodes]);
 
   // Selected routes with a real (non-circulator) inbound/outbound split -
   // same "hasMultipleDirs" shape the route-selector sheet's own dirToggleWrap
@@ -2576,28 +2596,52 @@ export default function MapScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* Only rendered on days a game's actually scheduled - gamedayRouteCodes
+              is empty the rest of the time, so this segmented control simply
+              doesn't exist rather than sitting there disabled. */}
+          {gamedayRouteCodes.length > 0 && (
+            <View style={[styles.routeTabRow, { borderBottomColor: c.border }]}>
+              {(['regular', 'gameday'] as const).map(tab => (
+                <TouchableOpacity
+                  key={tab}
+                  style={[styles.routeTabButton, { backgroundColor: routeTab === tab ? c.tint : c.surfaceAlt }]}
+                  onPress={() => setRouteTab(tab)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: routeTab === tab }}
+                  accessibilityLabel={tab === 'gameday' ? 'Gameday routes' : 'Regular routes'}
+                >
+                  <Text style={[styles.routeTabButtonText, { color: routeTab === tab ? '#fff' : c.textSecondary }]}>
+                    {tab === 'gameday' ? 'Gameday' : 'Regular'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
           <TouchableOpacity
-            style={[styles.routeRow, selectedRoutes.size === ALL_ROUTES.length && { backgroundColor: c.tint + '15' }, { borderBottomColor: c.border }]}
+            style={[styles.routeRow, selectedRoutes.size === currentTabRoutes.length && { backgroundColor: c.tint + '15' }, { borderBottomColor: c.border }]}
             onPress={() => {
               const now = Date.now();
               if (now - lastSelectAllClickRef.current < 375) return; // 375 ms cooldown stops crash
               lastSelectAllClickRef.current = now;
-              if (selectedRoutes.size === ALL_ROUTES.length) {
+              if (selectedRoutes.size === currentTabRoutes.length) {
                 cancelGradualSelectAll();
                 setSelectedRoutes(new Set());
+              } else if (routeTab === 'gameday') {
+                rampSelectedRoutesTo(currentTabRoutes);
               } else {
                 selectAllRoutesGradually();
               }
             }}
             accessibilityRole="checkbox"
-            accessibilityLabel="All routes"
-            accessibilityState={{ checked: selectedRoutes.size === ALL_ROUTES.length }}
+            accessibilityLabel={routeTab === 'gameday' ? 'All gameday routes' : 'All routes'}
+            accessibilityState={{ checked: selectedRoutes.size === currentTabRoutes.length }}
           >
-            <View style={[styles.routeTag, { backgroundColor: selectedRoutes.size === ALL_ROUTES.length ? c.tint : c.surfaceAlt }]}>
-              <Text style={[styles.routeTagText, { color: selectedRoutes.size === ALL_ROUTES.length ? '#fff' : c.textSecondary }]}>ALL</Text>
+            <View style={[styles.routeTag, { backgroundColor: selectedRoutes.size === currentTabRoutes.length ? c.tint : c.surfaceAlt }]}>
+              <Text style={[styles.routeTagText, { color: selectedRoutes.size === currentTabRoutes.length ? '#fff' : c.textSecondary }]}>ALL</Text>
             </View>
-            <Text style={[styles.routeName, { color: c.text }]}>All Routes</Text>
-            {selectedRoutes.size === ALL_ROUTES.length && <Text style={[styles.checkmark, { color: c.tint }]}>✓</Text>}
+            <Text style={[styles.routeName, { color: c.text }]}>{routeTab === 'gameday' ? 'All Gameday Routes' : 'All Routes'}</Text>
+            {selectedRoutes.size === currentTabRoutes.length && <Text style={[styles.checkmark, { color: c.tint }]}>✓</Text>}
           </TouchableOpacity>
 
           <FlatList
@@ -3995,6 +4039,22 @@ const styles = StyleSheet.create({
   },
   sheetTitle: { fontSize: 17, fontWeight: '600' },
   sheetDone: { fontSize: 16, fontWeight: '600' },
+
+  // Regular/Gameday tab switcher atop the route list
+  routeTabRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    gap: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  routeTabButton: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  routeTabButtonText: { fontSize: 14, fontWeight: '600' },
 
   // Route list
   routeRow: {
