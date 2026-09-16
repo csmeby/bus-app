@@ -7,7 +7,7 @@ module.exports = {
   expo: {
     name: "Century Tree Transit",
     slug: "bus",
-    version: "1.0.9",
+    version: "1.0.11",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
     scheme: "ctt",
