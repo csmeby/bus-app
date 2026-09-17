@@ -2590,33 +2590,34 @@ export default function MapScreen() {
         <View style={[styles.sheet, { backgroundColor: sheetBg, paddingBottom: insets.bottom + 16 }]}>
           <View style={[styles.sheetHandle, { backgroundColor: c.border }]} />
           <View style={[styles.sheetHeader, { borderBottomColor: c.border }]}>
-            <Text style={[styles.sheetTitle, { color: c.text }]} accessibilityRole="header">Select Routes</Text>
-            <TouchableOpacity onPress={() => setRoutePickerOpen(false)} accessibilityRole="button" hitSlop={8}>
-              <Text style={[styles.sheetDone, { color: c.tint }]}>Done</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Only rendered on days a game's actually scheduled - gamedayRouteCodes
-              is empty the rest of the time, so this segmented control simply
-              doesn't exist rather than sitting there disabled. */}
-          {gamedayRouteCodes.length > 0 && (
-            <View style={[styles.routeTabRow, { borderBottomColor: c.border }]}>
-              {(['regular', 'gameday'] as const).map(tab => (
+            <Text style={[styles.sheetTitle, { color: c.text }]} accessibilityRole="header">
+              {routeTab === 'gameday' ? 'Select Gameday Routes' : 'Select Routes'}
+            </Text>
+            <View style={styles.sheetHeaderActions}>
+              {/* Only rendered on days a game's actually scheduled -
+                  gamedayRouteCodes is empty the rest of the time, so this
+                  button simply doesn't exist rather than sitting there
+                  disabled. Toggles which roster the list/ALL row below is
+                  scoped to - it's a display filter only, selectedRoutes
+                  itself never changes just from tapping this. */}
+              {gamedayRouteCodes.length > 0 && (
                 <TouchableOpacity
-                  key={tab}
-                  style={[styles.routeTabButton, { backgroundColor: routeTab === tab ? c.tint : c.surfaceAlt }]}
-                  onPress={() => setRouteTab(tab)}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: routeTab === tab }}
-                  accessibilityLabel={tab === 'gameday' ? 'Gameday routes' : 'Regular routes'}
+                  onPress={() => setRouteTab(t => (t === 'gameday' ? 'regular' : 'gameday'))}
+                  hitSlop={8}
+                  style={[styles.gamedayToggle, { backgroundColor: routeTab === 'gameday' ? c.tint : c.surfaceAlt }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Gameday routes"
+                  accessibilityHint={routeTab === 'gameday' ? 'Switch back to regular routes' : 'Show gameday routes instead'}
+                  accessibilityState={{ selected: routeTab === 'gameday' }}
                 >
-                  <Text style={[styles.routeTabButtonText, { color: routeTab === tab ? '#fff' : c.textSecondary }]}>
-                    {tab === 'gameday' ? 'Gameday' : 'Regular'}
-                  </Text>
+                  <MaterialIcons name="sports-football" size={18} color={routeTab === 'gameday' ? '#fff' : c.textSecondary} />
                 </TouchableOpacity>
-              ))}
+              )}
+              <TouchableOpacity onPress={() => setRoutePickerOpen(false)} accessibilityRole="button" hitSlop={8}>
+                <Text style={[styles.sheetDone, { color: c.tint }]}>Done</Text>
+              </TouchableOpacity>
             </View>
-          )}
+          </View>
 
           <TouchableOpacity
             style={[styles.routeRow, selectedRoutes.size === currentTabRoutes.length && { backgroundColor: c.tint + '15' }, { borderBottomColor: c.border }]}
@@ -2660,7 +2661,7 @@ export default function MapScreen() {
                   style={[styles.routeRowContainer, selected && { backgroundColor: c.tint + '15' }, { borderBottomColor: c.border }]}
                   onPress={() => toggleRoute(route)}
                   accessibilityRole="checkbox"
-                  accessibilityLabel={`Route ${route}, ${info?.name ?? ''}${disruptedRoutes.has(route) ? ', has a service disruption' : ''}${isFavorite(route) ? ', favorite' : ''}`}
+                  accessibilityLabel={`Route ${route}, ${info?.name ?? ''}${disruptedRoutes.has(route) ? ', has a service disruption' : ''}${isLocked(route) ? ', locked' : ''}${isFavorite(route) ? ', favorite' : ''}`}
                   accessibilityState={{ checked: selected }}
                 >
                   <View style={styles.routeRowTop}>
@@ -2671,6 +2672,7 @@ export default function MapScreen() {
                       {info?.name ?? `Route ${route}`}
                     </Text>
                     {disruptedRoutes.has(route) && <Text style={styles.disruptionWarning}>⚠</Text>}
+                    {isLocked(route) && <MaterialIcons name="lock" size={14} color={c.textSecondary} style={styles.lockIcon} />}
                     {isFavorite(route) && <Text style={styles.favoriteStar}>★</Text>}
                     {selected && <Text style={[styles.checkmark, { color }]}>✓</Text>}
                   </View>
@@ -4040,21 +4042,14 @@ const styles = StyleSheet.create({
   sheetTitle: { fontSize: 17, fontWeight: '600' },
   sheetDone: { fontSize: 16, fontWeight: '600' },
 
-  // Regular/Gameday tab switcher atop the route list
-  routeTabRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    gap: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  routeTabButton: {
-    flex: 1,
-    paddingVertical: 7,
-    borderRadius: 8,
+  sheetHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  gamedayToggle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  routeTabButtonText: { fontSize: 14, fontWeight: '600' },
 
   // Route list
   routeRow: {
@@ -4075,6 +4070,7 @@ const styles = StyleSheet.create({
   routeTagText: { fontSize: 13, fontWeight: '700' },
   routeName: { flex: 1, fontSize: 15 },
   checkmark: { fontSize: 16, fontWeight: '700', marginLeft: 2 },
+  lockIcon: { marginLeft: -2 },
   favoriteStar: { fontSize: 14, color: '#F59E0B' },
   disruptionWarning: { fontSize: 14, color: '#EF4444' },
   routeRowContainer: {
