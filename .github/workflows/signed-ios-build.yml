@@ -298,6 +298,18 @@ jobs:
           echo -n "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode \
             -o ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
 
+          # Diagnostic for "Cannot determine the Apple ID from Bundle ID ...
+          # and platform IOS": altool can't disambiguate which team owns the
+          # bundle ID when the API key's account belongs to more than one
+          # App Store Connect team/provider. This prints every team altool
+          # sees along with its ProviderShortname - whichever one matches
+          # this app's team is what --asc-provider below needs to be set to.
+          echo "=== altool --list-providers ==="
+          xcrun altool --list-providers \
+            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" || true
+          echo "================================"
+
           xcrun altool --upload-app \
             --type ios \
             --file "$IPA_PATH" \
