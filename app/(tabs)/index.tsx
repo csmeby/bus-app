@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   Dimensions,
   FlatList,
   Image,
@@ -18,6 +19,7 @@ import {
   View,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_DEFAULT, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
+import EventSource from 'react-native-sse';
 import { captureRef } from 'react-native-view-shot';
 
 import { MarkerImageFactory, useMarkerImage } from '@/lib/marker-image-factory';
@@ -1562,49 +1564,75 @@ export default function MapScreen() {
       .catch(() => {});
   }, []);
 
-  // Bus loading - completely rebuilt
+  // Bus loading - pushed via SSE (/buses/stream) instead of polled, so a
+  // fresh position reaches the app the instant the server's own poller has
+  // it rather than waiting on the app's next independent poll tick.
   useEffect(() => {
     let isMounted = true;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let es: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const loadBuses = async () => {
+    const handleData = (raw: string) => {
       try {
-        const res = await fetch(`${API_BASE}/buses`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: any[] = await res.json();
-
-        // Normalize direction keys
+        const data: any[] = JSON.parse(raw);
         const normalizedData = data.map(b => ({
           ...b,
           directionKey: b.directionKey?.toLowerCase()
         }));
-
         if (isMounted) {
           setBuses(normalizedData);
           busFetchFailuresRef.current = 0;
           setIsOffline(false);
         }
       } catch (e) {
-        console.warn('Bus fetch failed:', e);
-        if (isMounted) {
-          busFetchFailuresRef.current += 1;
-          if (busFetchFailuresRef.current >= 2) setIsOffline(true);
-        }
+        console.warn('Bus stream parse failed:', e);
       }
     };
 
-    // Initial load
-    loadBuses();
+    const handleFailure = () => {
+      if (!isMounted) return;
+      busFetchFailuresRef.current += 1;
+      if (busFetchFailuresRef.current >= 2) setIsOffline(true);
+    };
 
-    // Set up polling
-    intervalId = setInterval(loadBuses, 10000);
+    const connect = () => {
+      es = new EventSource(`${API_BASE}/buses/stream`);
+      es.addEventListener('message', (event: any) => {
+        if (event?.data) handleData(event.data);
+      });
+      es.addEventListener('error', () => {
+        console.warn('Bus stream error, reconnecting shortly');
+        handleFailure();
+        es?.close();
+        es = null;
+        if (isMounted) reconnectTimer = setTimeout(connect, 3000);
+      });
+    };
+
+    // Only keep a connection open while the app is actually in use - a
+    // backgrounded app has no reason to hold a long-lived server connection.
+    const handleAppStateChange = (state: string) => {
+      if (state === 'active') {
+        if (!es) connect();
+      } else {
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        es?.close();
+        es = null;
+      }
+    };
+
+    connect();
+    const appStateSub = AppState.addEventListener('change', handleAppStateChange);
 
     return () => {
       isMounted = false;
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
+      appStateSub.remove();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      es?.close();
+      es = null;
     };
   }, []);
 
